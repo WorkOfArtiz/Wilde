@@ -23,7 +23,6 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-
 #ifndef __WILDE_INTERNAL_H__
 #define __WILDE_INTERNAL_H__
 

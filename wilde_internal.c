@@ -44,23 +44,24 @@
 #include "util.h"
 
 #define MB               ((1UL) << 10))
-#define GB               ((1UL  << 20))
-#define TB               ((1UL  << 30))
-#define VMAP_START            (2 * TB)
-#define VMAP_SIZE             (2 * GB)
+#define GB ((1UL << 20))
+#define TB ((1UL << 30))
+#define VMAP_START (2 * TB)
+#define VMAP_SIZE (2 * GB)
 
 /* available space, later to be extended to include GC */
 struct vma available;
 
 void *wilde_map_new(void *real_addr, size_t size)
 {
-  /* calculate start and end of page range in which the original allocation falls */
-  uintptr_t page_start = ROUNDDOWN(((uintptr_t) real_addr), __PAGE_SIZE);
-  uintptr_t page_end   = ROUNDUP((uintptr_t) (real_addr + size), __PAGE_SIZE);
+  /* calculate start and end of page range in which the original allocation
+   * falls */
+  uintptr_t page_start = ROUNDDOWN(((uintptr_t)real_addr), __PAGE_SIZE);
+  uintptr_t page_end = ROUNDUP((uintptr_t)(real_addr + size), __PAGE_SIZE);
 
   /* calculate internal offset and required map size */
-  size_t    offset     = ((uintptr_t) real_addr) - page_start;
-  size_t    map_size   = page_end - page_start;
+  size_t offset = ((uintptr_t)real_addr) - page_start;
+  size_t map_size = page_end - page_start;
 
 #ifndef CONFIG_LIBWILDE_SHAUN
   /* we need to map a number of pages */
@@ -71,11 +72,12 @@ void *wilde_map_new(void *real_addr, size_t size)
 #endif
 
   /* now map in the range at the alias */
-  void *alias_base_addr = (void *) available.addr;
-  remap_range((void *) page_start, alias_base_addr, map_size);
+  void *alias_base_addr = (void *)available.addr;
+  remap_range((void *)page_start, alias_base_addr, map_size);
 
   /* add to administration */
-  alias_register((uintptr_t) real_addr, (uintptr_t) alias_base_addr + offset, size);
+  alias_register((uintptr_t)real_addr, (uintptr_t)alias_base_addr + offset,
+                 size);
 
   /*
    * if we're adding electric sheep, add another page to the reservation, which
@@ -95,33 +97,34 @@ void *wilde_map_new(void *real_addr, size_t size)
 void *wilde_map_rm(void *map_addr)
 {
   dprintf("Removing allocation at %p\n", map_addr);
-  const struct alias *result = alias_search((uintptr_t) map_addr);
+  const struct alias *result = alias_search((uintptr_t)map_addr);
   if (result == NULL)
     return NULL;
 
   dprintf("Found an alias mapping at {.alias=%p, .origin=%p, .size=%ld}\n",
-    (void *) result->alias, (void *) result->origin, result->size);
+          (void *)result->alias, (void *)result->origin, result->size);
 
-  void  *real_addr = (void *) result->origin;
+  void *real_addr = (void *)result->origin;
 
-  /* calculate start and end of page range in which the original allocation falls */
+  /* calculate start and end of page range in which the original allocation
+   * falls */
   uintptr_t page_start = ROUNDDOWN(result->alias, __PAGE_SIZE);
-  uintptr_t page_end   = ROUNDUP((result->alias + result->size), __PAGE_SIZE);
+  uintptr_t page_end = ROUNDUP((result->alias + result->size), __PAGE_SIZE);
 
   /* calculate internal offset and required map size */
-  size_t    map_size   = page_end - page_start;
+  size_t map_size = page_end - page_start;
 
-  unmap_range((void *) page_start, map_size);
-  alias_unregister((uintptr_t) map_addr);
+  unmap_range((void *)page_start, map_size);
+  alias_unregister((uintptr_t)map_addr);
 
   return real_addr;
 }
 
 void *wilde_map_get(void *map_addr)
 {
-  const struct alias *a = alias_search((uintptr_t) map_addr);
+  const struct alias *a = alias_search((uintptr_t)map_addr);
   UK_ASSERT(a);
-  return (void *) a->origin;
+  return (void *)a->origin;
 }
 
 struct uk_alloc *wilde_init()

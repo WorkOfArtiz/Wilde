@@ -11,12 +11,10 @@
 #include "alias.h"
 #include "util.h"
 
-
-
 /* hash table/linked list, alias -> (size, origin) */
 struct alias lookup[LOOKUP_SIZE] = {0};
 
-static inline void alias_clear(struct alias *a) 
+static inline void alias_clear(struct alias *a)
 {
   a->alias = 0;
   a->size = 0;
@@ -30,7 +28,7 @@ void alias_dump(void)
 
   for (int i = 0; i < LOOKUP_SIZE; i++) {
     printf("    [%d] ", i);
-    
+
     // if (!lookup[i].alias) {
     //   printf("Skip\n");
     //   continue;
@@ -54,19 +52,15 @@ void alias_dump(void)
   lprintf("Alias dump done\n");
 }
 
-
-void alias_register(uintptr_t addr, uintptr_t alias, size_t size) {
+void alias_register(uintptr_t addr, uintptr_t alias, size_t size)
+{
   dprintf("void alias_register(%#lx, %#lx, %ld)\n", addr, alias, size);
   uint16_t key = hash_address(alias) % LOOKUP_SIZE;
   if (!lookup[key].alias) {
     // lprintf("-> Registering directly in map\n");
 
-    lookup[key] = (struct alias) {
-      .size=size, 
-      .alias=alias, 
-      .origin=addr, 
-      .next=NULL
-    };
+    lookup[key] = (struct alias){
+        .size = size, .alias = alias, .origin = addr, .next = NULL};
 
     return;
   }
@@ -75,15 +69,15 @@ void alias_register(uintptr_t addr, uintptr_t alias, size_t size) {
   struct alias *s = &lookup[key];
   while (s->next && s->alias != alias)
     s = s->next;
-  
+
   /* catch an edge case */
   if (s->alias == alias) {
     dprintf("you registered an alias twice, dipshit\n");
-    UK_ASSERT(0); 
+    UK_ASSERT(0);
   }
 
   struct alias *a = malloc(sizeof(struct alias));
-  
+
   a->origin = addr;
   a->alias = alias;
   a->size = size;
@@ -92,19 +86,19 @@ void alias_register(uintptr_t addr, uintptr_t alias, size_t size) {
   s->next = a;
 }
 
-/* 
+/*
  * Guarantees the mapping is no longer in the allocated list.
- * 
+ *
  * returns whether a mapping has been removed
  */
-bool alias_unregister(uintptr_t alias) {
+bool alias_unregister(uintptr_t alias)
+{
   // lprintf("alias_unregister(%p)\n", (void *) alias);
   uint16_t key = hash_address(alias) % LOOKUP_SIZE;
   // lprintf("[unregister alias] key = %04X\n", key);
 
   /* check the first entry, edge case */
-  if (lookup[key].alias == alias)
-  {
+  if (lookup[key].alias == alias) {
     dprintf("Found in map\n");
 
     if (lookup[key].next) {
@@ -113,46 +107,44 @@ bool alias_unregister(uintptr_t alias) {
 
       alias_clear(next);
       free(next);
-    }
-    else
+    } else
       alias_clear(&lookup[key]);
-    
+
     return true;
   }
 
   struct alias *prev = &lookup[key];
   struct alias *cur = lookup[key].next;
 
-  while (cur) 
-  {
-    if (cur->alias == alias) 
+  while (cur) {
+    if (cur->alias == alias)
       break;
 
     prev = cur;
     cur = cur->next;
   }
 
-  if (cur) 
-  {
+  if (cur) {
     prev->next = cur->next;
     alias_clear(cur);
     free(cur);
   }
-  
+
   return cur != NULL;
 }
 
 /* returns NULL on not found or the alias struct if found */
-const struct alias *alias_search(uintptr_t alias) 
+const struct alias *alias_search(uintptr_t alias)
 {
   uint16_t key = hash_address(alias) % LOOKUP_SIZE;
-  
+
   struct alias *s = &lookup[key];
-  while (s &&  s->alias != alias)
+  while (s && s->alias != alias)
     s = s->next;
 
   if (s)
-    dprintf("Alias found {.alias=%p, .origin=%p, .size=%ld}\n", (void *) s->alias, (void *) s->origin, s->size);
+    dprintf("Alias found {.alias=%p, .origin=%p, .size=%ld}\n",
+            (void *)s->alias, (void *)s->origin, s->size);
   else
     dprintf("Alias not found\n");
 

@@ -28,10 +28,9 @@
 #include <stdint.h>
 #include "util.h"
 
-struct vma
-{
-  size_t      size;
-  uintptr_t   addr;
+struct vma {
+  size_t size;
+  uintptr_t addr;
   struct vma *prev;
   struct vma *next;
 };

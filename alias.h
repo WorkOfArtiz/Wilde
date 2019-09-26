@@ -6,7 +6,7 @@
 /*
  * To create a proper aliasing system, we need to be able to remember where
  * we made them. E.g.
- * 
+ *
  * malloc(20)
  *   call underlying malloc(20) impl, returns x
  *   we alias x to y
@@ -22,25 +22,24 @@
 
 /* virtual addresses consist of:
  *    [ sign extend:15 ] [ address bits:37 ] [ phys page offset:11 ]
- *    
- *    Since the phys page offset isn't interesting to keep for the alias 
- *    information, we want the alias information to be 
- *    
+ *
+ *    Since the phys page offset isn't interesting to keep for the alias
+ *    information, we want the alias information to be
+ *
  *    [ size info:27 ] [ address bits:37 ]
  */
-struct alias 
-{
-  size_t       size;    /* size of the alias in bytes */
-  uintptr_t    alias;   /* alias start address */
-  uintptr_t    origin;  /* original addr, used for free() */
-  struct alias *next;   /* next address in linked list */
+struct alias {
+  size_t size;        /* size of the alias in bytes */
+  uintptr_t alias;    /* alias start address */
+  uintptr_t origin;   /* original addr, used for free() */
+  struct alias *next; /* next address in linked list */
 };
 
 #define LOOKUP_SIZE 0x1000
 extern struct alias lookup[LOOKUP_SIZE];
 
-static inline uintptr_t hash_address(uintptr_t x) 
-{ 
+static inline uintptr_t hash_address(uintptr_t x)
+{
   x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
   x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
   x = x ^ (x >> 31);

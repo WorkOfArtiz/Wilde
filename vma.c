@@ -48,7 +48,7 @@
 // {
 //   if (t->prev)
 //     t->prev->next = t->next;
-  
+
 //   if (t->next)
 //     t->next->prev = t->prev;
 // }
@@ -56,7 +56,7 @@
 struct vma *vma_clear(struct vma *t)
 {
   t->size = -1;
-  t->addr =  0;
+  t->addr = 0;
   t->prev = NULL;
   t->next = NULL;
   return t;
