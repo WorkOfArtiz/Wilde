@@ -56,7 +56,7 @@ void alias_dump(void)
 
 
 void alias_register(uintptr_t addr, uintptr_t alias, size_t size) {
-  lprintf("void alias_register(%#lx, %#lx, %ld)\n", addr, alias, size);
+  dprintf("void alias_register(%#lx, %#lx, %ld)\n", addr, alias, size);
   uint16_t key = hash_address(alias) % LOOKUP_SIZE;
   if (!lookup[key].alias) {
     // lprintf("-> Registering directly in map\n");
@@ -70,7 +70,7 @@ void alias_register(uintptr_t addr, uintptr_t alias, size_t size) {
 
     return;
   }
-  lprintf("-> Gonna have to allocate a new node\n");
+  dprintf("-> Gonna have to allocate a new node\n");
 
   struct alias *s = &lookup[key];
   while (s->next && s->alias != alias)
@@ -78,7 +78,7 @@ void alias_register(uintptr_t addr, uintptr_t alias, size_t size) {
   
   /* catch an edge case */
   if (s->alias == alias) {
-    lprintf("you registered an alias twice, dipshit\n");
+    dprintf("you registered an alias twice, dipshit\n");
     UK_ASSERT(0); 
   }
 
@@ -105,7 +105,7 @@ bool alias_unregister(uintptr_t alias) {
   /* check the first entry, edge case */
   if (lookup[key].alias == alias)
   {
-    lprintf("Found in map\n");
+    dprintf("Found in map\n");
 
     if (lookup[key].next) {
       struct alias *next = lookup[key].next;
@@ -150,12 +150,11 @@ const struct alias *alias_search(uintptr_t alias)
   struct alias *s = &lookup[key];
   while (s &&  s->alias != alias)
     s = s->next;
-  // UK_ASSERT(s);
 
-  // if (s)
-    lprintf("Alias found {.alias=%p, .origin=%p, .size=%ld}\n", (void *) s->alias, (void *) s->origin, s->size);
-  // else
-  //   lprintf("Alias not found\n");
+  if (s)
+    dprintf("Alias found {.alias=%p, .origin=%p, .size=%ld}\n", (void *) s->alias, (void *) s->origin, s->size);
+  else
+    dprintf("Alias not found\n");
 
   return s;
 }

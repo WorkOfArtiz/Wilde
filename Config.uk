@@ -11,6 +11,38 @@ menuconfig LIBWILDE
 
 if (LIBWILDE)
 
+menu "Debugging"
+
+config LIBWILDE_ALLOC_DEBUG
+			bool "Shows allocation and allocation mappings"
+			default n
+			help
+				To help with debugging an application, it might be useful to know what 
+				an application actually allocated etc. Therefore there's this flag that
+				automatically prints all allocations
+
+config LIBWILDE_DISABLE_INJECTION
+			 bool "Stops injection"
+			 default n
+			 help
+			 	 Injecting allocations is what Wilde is for, but if you're stuck during 
+				 debugging, this turns off internals, while still allowing for the alloc
+				 debug messages
+
+config LIBWILDE_DEBUG
+			 bool "Print all kinds of debug messages"
+			 default n
+			 help
+			 	 Will help debug libwilde itself
+
+config LIBWILDE_COLOR
+			 bool "Enable ANSI-coloured messages"
+			 default y 
+			 help
+			 		For easier debugging
+
+endmenu
+
 config LIBWILDE_SHAUN
 			bool "Electric Sheep"
 			default n

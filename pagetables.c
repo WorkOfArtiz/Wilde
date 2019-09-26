@@ -95,7 +95,7 @@ static inline uintptr_t pt_create() {
     for (int i = 0; i < PT_P1_ENTRIES; i++)
         page[i] = !PT_P1_PRESENT;
     
-    lprintf("Allocated new page at %p\n", page);
+    dprintf("Allocated new page at %p\n", page);
     return (uintptr_t) page;
 }
 
@@ -117,7 +117,7 @@ static inline p2_t *pt_get_p1_pte(uintptr_t *p1, uintptr_t vaddr, bool create)
         return entry;
     
     if (create) {
-        lprintf("Creating new page table\n");
+        dprintf("Creating new page table\n");
         *entry = PT_P1_PRESENT | pt_create();
         return entry;
     }
@@ -135,7 +135,7 @@ static inline p2_t *pt_get_p2_pte(uintptr_t *p2, uintptr_t vaddr, bool create)
         return entry;
     
     if (create) {
-        lprintf("Creating new page table\n");
+        dprintf("Creating new page table\n");
         *entry = PT_P2_PRESENT | pt_create();
         return entry;
     }
@@ -153,7 +153,7 @@ static inline p3_t *pt_get_p3_pte(uintptr_t *p3, uintptr_t vaddr, bool create)
         return entry;
     
     if (create) {
-        lprintf("Creating new page table\n");
+        dprintf("Creating new page table\n");
         *entry = PT_P3_PRESENT | pt_create();
         return entry;
     }
@@ -171,7 +171,7 @@ static inline p4_t *pt_get_p4_pte(uintptr_t *p4, uintptr_t vaddr, bool create)
         return entry;
     
     if (create) {
-        lprintf("Creating new page table\n");
+        dprintf("Creating new page table\n");
         *entry = PT_P4_PRESENT | pt_create();
         return entry;
     }
@@ -199,42 +199,42 @@ void print_binary_number(uintptr_t x) {
 
 static uintptr_t pt_get_phys(uintptr_t vaddr, bool create)
 {
-    lprintf("get_phys %p [%ld, %ld, %ld, %ld]\n", (void *) vaddr,
+    dprintf("get_phys %p [%ld, %ld, %ld, %ld]\n", (void *) vaddr,
         PT_P1_IDX(vaddr), PT_P2_IDX(vaddr), PT_P3_IDX(vaddr), PT_P4_IDX(vaddr)
     );
 
     p1_t *p1 = pt_get_p1_pte((p1_t *) rcr3(), vaddr, create);
-    lprintf("get_phys %p p1@%p\n", (void *) vaddr, p1);
+    dprintf("get_phys %p p1@%p\n", (void *) vaddr, p1);
 
     p2_t *p2 = pt_get_p2_pte(pt_pte_to_pt(p1), vaddr, create);
-    lprintf("get_phys %p p2@%p\n", (void *) vaddr, p2);
+    dprintf("get_phys %p p2@%p\n", (void *) vaddr, p2);
 
     if ((!p2 || !(*p2 | PT_P2_PRESENT)) && !create)
         return 0;
 
 
     if (p2 && (*p2 & PT_P2_1GB) && (*p2 & PT_P2_PRESENT)) {
-        lprintf("get_phys %p 1 gb, phys = %p\n", (void *) vaddr, (void *)((*p2 & PT_P2_MASK_ADDR) + (vaddr & MASK_1GB)));
+        dprintf("get_phys %p 1 gb, phys = %p\n", (void *) vaddr, (void *)((*p2 & PT_P2_MASK_ADDR) + (vaddr & MASK_1GB)));
         return (*p2 & PT_P2_MASK_ADDR) + (vaddr & MASK_1GB);
     }
 
     p3_t *p3 = pt_get_p3_pte(pt_pte_to_pt(p2), vaddr, create);
-    lprintf("get_phys %p p3@%p\n", (void *) vaddr, p3);
+    dprintf("get_phys %p p3@%p\n", (void *) vaddr, p3);
 
     // edge case 2, p3 can be a 2Mb page
     if (p3 && *p3 & PT_P3_2MB && *p3 & PT_P3_PRESENT) {
-        lprintf("get_phys %p 2 mb, phys = %p\n", (void *) vaddr, (void *) ((*p3 & PT_P3_MASK_ADDR) + (vaddr & MASK_2MB)));
+        dprintf("get_phys %p 2 mb, phys = %p\n", (void *) vaddr, (void *) ((*p3 & PT_P3_MASK_ADDR) + (vaddr & MASK_2MB)));
         return (*p3 & PT_P3_MASK_ADDR) + (vaddr & MASK_2MB);
     }
 
     p4_t *p4 = pt_get_p4_pte(pt_pte_to_pt(p3), vaddr, create);
-    lprintf("get_phys %p p4@%p\n", (void *) vaddr, p4);
+    dprintf("get_phys %p p4@%p\n", (void *) vaddr, p4);
 
     // if it's not mapped in
     if (!p4 || !(*p4 & PT_P4_PRESENT))
         return 0;
     
-    lprintf("get_phys %p 4 4b, phys = %p\n", (void *) vaddr, (void *)(*p4 & PT_P4_MASK_ADDR));
+    dprintf("get_phys %p 4 4b, phys = %p\n", (void *) vaddr, (void *)(*p4 & PT_P4_MASK_ADDR));
     return *p4 & PT_P4_MASK_ADDR;
 }
 
@@ -249,7 +249,7 @@ static void print_p4(p4_t *p4_p, uintptr_t vaddr)
         if (!(p4_e & PT_P4_PRESENT))
             continue;
 
-        lprintf("  |   |   |   |- p4[%3d] 4Kb page mapping vaddr %p-%p to phys %p-%p\n", (int) p4,
+        dprintf("  |   |   |   |- p4[%3d] 4Kb page mapping vaddr %p-%p to phys %p-%p\n", (int) p4,
             (void *) p4_v,
             (void *) (p4_v + __PAGE_SIZE - 1),
             (void *) pt_pte_to_pt(&p4_e),
@@ -270,7 +270,7 @@ static void print_p3(p3_t *p3_p, uintptr_t vaddr)
         if (p3_e & PT_P3_2MB) {
             char *phys = (char *) pt_pte_to_pt(&p3_e);
 
-            lprintf("  |   |   |- p3[%3d] 2Mb page mapping vaddr %p-%p to phys %p-%p\n", (int) p3,
+            dprintf("  |   |   |- p3[%3d] 2Mb page mapping vaddr %p-%p to phys %p-%p\n", (int) p3,
                 (void *) p3_v,
                 (void *) (p3_v + (1 << PT_P3_VA_SHIFT) - 1),
                 (void *) phys,
@@ -281,7 +281,7 @@ static void print_p3(p3_t *p3_p, uintptr_t vaddr)
         }
 
         p4_t *p4_p = pt_pte_to_pt(&p3_e);
-        lprintf("  |   |   |- p3[%3d] entry -> %p\n", (int) p3, p4_p);
+        dprintf("  |   |   |- p3[%3d] entry -> %p\n", (int) p3, p4_p);
         print_p4(p4_p, p3_v);
     }
 }
@@ -296,7 +296,7 @@ static void print_p2(p2_t *p2_p, uintptr_t vaddr)
             continue;
 
         if (p2_e & PT_P2_1GB) {
-            lprintf("  |   |- p2[%3d] 1Gb page mapping %p-%p\n", (int) p2,
+            dprintf("  |   |- p2[%3d] 1Gb page mapping %p-%p\n", (int) p2,
                 (void *) p2_v,
                 (void *) (p2_v + (1 << PT_P2_VA_SHIFT) - 1)
             );
@@ -305,7 +305,7 @@ static void print_p2(p2_t *p2_p, uintptr_t vaddr)
         }
 
         p3_t *p3_p = pt_pte_to_pt(&p2_e);
-        lprintf("  |   |- p2[%3d] entry -> %p\n", (int) p2, p3_p);
+        dprintf("  |   |- p2[%3d] entry -> %p\n", (int) p2, p3_p);
         print_p3(p3_p, p2_v);
     }
 }
@@ -313,7 +313,7 @@ static void print_p2(p2_t *p2_p, uintptr_t vaddr)
 void print_pgtables(void)
 {
     p1_t *p1_p = (p1_t *) rcr3();
-    lprintf("cr3: %p\n", p1_p);
+    dprintf("cr3: %p\n", p1_p);
 
     for (uintptr_t p1 = 0; p1 < PT_P1_ENTRIES; p1++) {
         p1_t p1_e = p1_p[p1];
@@ -323,21 +323,21 @@ void print_pgtables(void)
             continue;
         
         p2_t *p2_p = pt_pte_to_pt(&p1_e);
-        lprintf("  |- p1[%3d] entry -> %p\n", (int) p1, p2_p);
+        dprintf("  |- p1[%3d] entry -> %p\n", (int) p1, p2_p);
         print_p2(p2_p, p1_v);
     }
 }
 
 void remap_range(void *from, void *to, size_t size)
 {
-    lprintf("remap_range %p-%p => %p-%p\n", from, from + size - 1, to, to + size - 1);
+    dprintf("remap_range %p-%p => %p-%p\n", from, from + size - 1, to, to + size - 1);
     p1_t *cr3 = (p1_t *) rcr3();
 
     for (size_t i = 0; i < size; i += 4096) {
         uintptr_t addr = pt_get_phys((uintptr_t) from + i, false);
 
         uintptr_t vaddr = (uintptr_t) (to + i);
-        lprintf(" -> remapping phys page %p to %p\n", (void *) addr, (void *) vaddr);
+        dprintf(" -> remapping phys page %p to %p\n", (void *) addr, (void *) vaddr);
 
         p1_t *p1 = pt_get_p1_pte(cr3, vaddr, true);
         p2_t *p2 = pt_get_p2_pte(pt_pte_to_pt(p1), vaddr, true);

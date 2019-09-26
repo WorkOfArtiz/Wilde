@@ -26,10 +26,10 @@
  * The implemenation exists of 3 parts:
  *
  * [X] allocator injection (making a shim of the allocator)
- * [ ] remapping pages with correct access rights
+ * [X] remapping pages with correct access rights
  * [X] a virtual memory management structure
- *     [ ] on alloc, find new piece of memory
- *     [ ] on free, find original allocation
+ *     [X] on alloc, find new piece of memory
+ *     [X] on free, find original allocation
  */
 #include <uk/alloc.h>
 #include <stdio.h>
@@ -62,7 +62,6 @@ void *wilde_map_new(void *real_addr, size_t size)
   size_t    offset     = ((uintptr_t) real_addr) - page_start;
   size_t    map_size   = page_end - page_start;
 
-
 #ifndef CONFIG_LIBWILDE_SHAUN
   /* we need to map a number of pages */
   UK_ASSERT(map_size < available.size);
@@ -74,12 +73,9 @@ void *wilde_map_new(void *real_addr, size_t size)
   /* now map in the range at the alias */
   void *alias_base_addr = (void *) available.addr;
   remap_range((void *) page_start, alias_base_addr, map_size);
-  lprintf("REMAP DONE\n");
-
 
   /* add to administration */
   alias_register((uintptr_t) real_addr, (uintptr_t) alias_base_addr + offset, size);  
-  lprintf("REGISTRATION COMPLETE\n");
 
   /* 
    * if we're adding electric sheep, add another page to the reservation, which
@@ -98,14 +94,15 @@ void *wilde_map_new(void *real_addr, size_t size)
 
 void *wilde_map_rm(void *map_addr)
 {
-  lprintf("Removing allocation at %p\n", map_addr);
+  dprintf("Removing allocation at %p\n", map_addr);
   const struct alias *result = alias_search((uintptr_t) map_addr);
-  // lprintf("Found an alias mapping at %p\n", result);
+  
   if (result == NULL)
     return NULL;
 
+  dprintf("Found an alias mapping at %p\n", result);
+
   void  *real_addr = (void *) result->origin;
-  size_t size = result->size;
 
   /* calculate start and end of page range in which the original allocation falls */
   uintptr_t page_start = ROUNDDOWN(result->alias, __PAGE_SIZE);
@@ -127,25 +124,6 @@ void *wilde_map_get(void *map_addr)
 
 struct uk_alloc *wilde_init()
 {
-  // for (int i = 0; i < 4000; i++) {
-  //   lprintf("    ");
-  //   hprintf("[%4d] ", i);
-
-  //   if (i & 1)
-  //     if (i & 2)
-  //       hprintf("Unimportant 4 ddddddddddddddddddddddddddddddddddddddddddddddd");
-  //     else
-  //       hprintf("Unimportant 2 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-  //   else
-  //     if (i & 2)
-  //       hprintf("Unimportant 3 ccccccccccccccccccccccccccccccccccccccccccccccc");
-  //     else
-  //       hprintf("Unimportant 1 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-
-  //   hprintf("\n");
-  // }
-
-
   struct uk_alloc *shim = shim_init();
 
   /* set up VMA */
@@ -173,33 +151,5 @@ struct uk_alloc *wilde_init()
   remap_range((void *) 0x201000ULL, (void *) (4ULL << (8 * 4)), __PAGE_SIZE);
 #endif
 
-
-  // void *p = malloc(10);
-  // lprintf("Ptr to mess around with %p\n", p);
-
-
-  // for (int i = 0; i < 1000; i++)
-  //   alias_register((uintptr_t) p, VMAP_START + i * __PAGE_SIZE, 10);
-  // // alias_register((uintptr_t) p, VMAP_START + __PAGE_SIZE, 3);
-  // // alias_register((uintptr_t) p, VMAP_START + __PAGE_SIZE * 2, 3);
-  // lprintf("registered alias %p -> %p [%d]\n", (void *) VMAP_START, p, 10);
-
-  // // alias_dump();
-
-  // const struct alias *x = alias_search(VMAP_START);
-  // lprintf("alias .addr=%p, .alias=%p, .size=%ld\n", 
-  //   (void *) x->origin, (void *) x->alias, x->size);
-  
-  // for (int i = 0; i < 100; i+=2)
-  //    if (alias_unregister(VMAP_START + i * __PAGE_SIZE))
-  //       lprintf("[unregister] %d success\n", i);
-  //     else
-  //       lprintf("[unregister] %d failure\n", i); 
-
-  // alias_dump();
-
-  // UK_ASSERT(alias_search(VMAP_START) == NULL);
-
-  lprintf("WILDE INIT DONE\n");
   return shim;
 }

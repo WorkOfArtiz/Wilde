@@ -7,6 +7,9 @@
 /* aligning */
 #include <uk/essentials.h>
 
+/* configurations */
+#include <uk/config.h>
+
 #define UNUSED(X) (void)(X)
 
 /* Rounding operations (efficient when n is a power of 2)
@@ -24,12 +27,32 @@
     (typeof(a)) (ROUNDDOWN((uintptr_t) (a) + __n - 1, __n));                   \
 })
 
-#ifndef COLOR
-#define COLOR "31"
+// #ifndef COLOR
+// #define COLOR "31"
+// #endif
+
+#ifdef CONFIG_LIBWILDE_DEBUG
+#define dprintf lprintf
+#else
+#define dprintf(...) do {} while(0)
 #endif
 
-#define lprintf(fmt, ...) \
-    hprintf("[\033[1;" COLOR "m%16s\033[0m] " fmt, __func__, ##__VA_ARGS__)
+#ifdef CONFIG_LIBWILDE_COLOR
+#define lprintf(fmt, ...)                                                      \
+    ({                                                                         \
+      char $buf[50 + sizeof(__func__) * 3];                                    \
+      sprintf($buf, "[\033[1;" COLOR "mwilde:%s\033[0m]", __func__);           \
+      hprintf("%-30s " fmt, $buf, ##__VA_ARGS__);                              \
+    })
+
+#else
+#define lprintf(fmt, ...)                                                      \
+    ({                                                                         \
+      char $buf[50 + sizeof(__func__) * 3];                                    \
+      sprintf($buf, "[wilde:%s]", __func__);                                   \
+      hprintf("%-20s " fmt, $buf, ##__VA_ARGS__);                              \
+    })
+#endif
 
 #define hprintf(...) \
   ({ int ret; while ((ret = printf(__VA_ARGS__)) == -EINTR || ret == -EAGAIN) {} ret; })

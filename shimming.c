@@ -49,8 +49,6 @@
 #include "util.h"
 #include "vma.h"
 
-#define SHIM_INTERCEPT
-#define SHIM_VERBOSE
 
 struct uk_alloc *shimmed; /* the allocator on top of this */
 struct uk_alloc  shim;    /* the shim itself, the new allocator */
@@ -62,13 +60,13 @@ void* shim_malloc(struct uk_alloc *a, size_t size)
 
     void *res = shimmed->malloc(shimmed, size);
 
-#ifdef SHIM_VERBOSE
+#ifdef CONFIG_LIBWILDE_ALLOC_DEBUG
     lprintf("malloc(%zu) => %p\n", size, res);
 #endif
     if (!res)
         return NULL;
 
-#ifdef SHIM_INTERCEPT
+#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
     // wrap the return value in a new mapping
     return wilde_map_new(res, size);
 #else
@@ -82,15 +80,15 @@ void* shim_calloc(struct uk_alloc *a, size_t nmemb, size_t size)
 
     void *res = shimmed->calloc(shimmed, nmemb, size);
 
-#ifdef SHIM_VERBOSE    
-    lprintf("[%s] calloc(nmemb=%zu, size=%zu) => %p\n", __func__,
+#ifdef CONFIG_LIBWILDE_ALLOC_DEBUG    
+    lprintf("calloc(nmemb=%zu, size=%zu) => %p\n", 
         nmemb, size, res);
 #endif
 
     if (!res)
         return NULL;
 
-#ifdef SHIM_INTERCEPT
+#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
     return wilde_map_new(res, nmemb * size);
 #else
     return res;
@@ -103,14 +101,14 @@ int shim_posix_memalign(struct uk_alloc *a, void **memptr, size_t align, size_t 
 
     int res = shimmed->posix_memalign(shimmed, memptr, align, size);
 
-#ifdef SHIM_VERBOSE
-    lprintf("[%s] posix_memalign(memptr=%p, align=%zu, size=%zu) => %d\n",
-        __func__, memptr, align, size, res);
+#ifdef CONFIG_LIBWILDE_ALLOC_DEBUG
+    lprintf("posix_memalign(memptr=%p, align=%zu, size=%zu) => %d\n",
+        memptr, align, size, res);
 #endif
     if (res != 0)
         return res;
 
-#ifdef SHIM_INTERCEPT
+#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
     /* intercept the return value */
     *memptr = wilde_map_new(*memptr, size);
 #endif
@@ -122,12 +120,12 @@ void* shim_memalign(struct uk_alloc *a, size_t align, size_t size)
     UNUSED(a);
 
     void *res = shimmed->memalign(shimmed, align, size);
-#ifdef SHIM_VERBOSE
-    lprintf("[%s] memalign(align=%zu, size=%zu) => %p\n", __func__, align, size,
+#ifdef CONFIG_LIBWILDE_ALLOC_DEBUG
+    lprintf("memalign(align=%zu, size=%zu) => %p\n", align, size,
         res);
 #endif
 
-#ifdef SHIM_INTERCEPT
+#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
     return wilde_map_new(res, size);
 #else
     return res;
@@ -138,7 +136,7 @@ void* shim_realloc(struct uk_alloc *a, void *ptr, size_t size)
 {
     UNUSED(a);
 
-#ifdef SHIM_INTERCEPT
+#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
     /* TODO reconsider this, this makes all unchecked reallocs FAIL */
     void *real_ptr = wilde_map_rm(ptr);
 #else
@@ -147,11 +145,11 @@ void* shim_realloc(struct uk_alloc *a, void *ptr, size_t size)
 
     void *res = shimmed->realloc(shimmed, real_ptr, size);
 
-#ifdef SHIM_VERBOSE
-    lprintf("[%s] realloc(ptr=%p, size=%zu) => %p\n", __func__, real_ptr, size, res);
+#ifdef CONFIG_LIBWILDE_ALLOC_DEBUG
+    lprintf("realloc(ptr=%p, size=%zu) => %p\n", real_ptr, size, res);
 #endif
 
-#ifdef SHIM_INTERCEPT
+#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
     return wilde_map_new(res, size);
 #else
     return res;
@@ -161,20 +159,22 @@ void* shim_realloc(struct uk_alloc *a, void *ptr, size_t size)
 void shim_free(struct uk_alloc *a, void *ptr)
 {
     UNUSED(a);
-
-#ifdef SHIM_VERBOSE
+#if CONFIG_LIBWILDE_ALLOC_DEBUG && !CONFIG_LIBWILDE_DISABLE_INJECTION
     lprintf("shim_free(ptr=%p)\n", ptr);
 #endif
 
-#ifdef SHIM_INTERCEPT
+#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
     void *real_ptr = wilde_map_rm(ptr);
+
+    if (real_ptr == NULL)
+        UK_CRASH("invalid free\n");
 #else
     void *real_ptr = ptr;
 #endif
 
     shimmed->free(shimmed, real_ptr);
 
-#ifdef SHIM_VERBOSE
+#ifdef CONFIG_LIBWILDE_ALLOC_DEBUG
     lprintf("free(ptr=%p)\n", real_ptr);
 #endif
 
@@ -186,11 +186,11 @@ void* shim_palloc(struct uk_alloc *a, size_t order)
     UNUSED(a);
 
     void *res = shimmed->palloc(shimmed, order);
-#ifdef SHIM_VERBOSE
-    lprintf("[%s] palloc(order=%zu) => %p\n", __func__, order, res);
+#ifdef CONFIG_LIBWILDE_ALLOC_DEBUG
+    lprintf("palloc(order=%zu) => %p\n", order, res);
 #endif
 
-#ifdef SHIM_INTERCEPT
+#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
     return wilde_map_new(res, order * __PAGE_SIZE);
 #else
     return res;
@@ -201,16 +201,19 @@ void shim_pfree(struct uk_alloc *a, void *ptr, size_t order)
 {
     UNUSED(a);
 
-#ifdef SHIM_INTERCEPT
+#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
     void *real_ptr = wilde_map_rm(ptr);
+    
+    if (real_ptr == NULL)
+        UK_CRASH("invalid free\n");
 #else
     void *real_ptr = ptr;
 #endif
 
     shimmed->pfree(shimmed, real_ptr, order);
 
-#ifdef SHIM_VERBOSE
-    lprintf("[%s] pfree(ptr=%p, order=%zu)\n", __func__, ptr, order);
+#ifdef CONFIG_LIBWILDE_ALLOC_DEBUG
+    lprintf("pfree(ptr=%p, order=%zu)\n", ptr, order);
 #endif
 }
 #endif
@@ -220,8 +223,8 @@ int shim_addmem(struct uk_alloc *a, void *base, size_t size)
     UNUSED(a);
 
     int res = shimmed->addmem(shimmed, base, size);
-#ifdef SHIM_VERBOSE
-    lprintf("[%s] addmem(base=%p, size=%zu) => %d\n", __func__, base, size, res);
+#ifdef CONFIG_LIBWILDE_ALLOC_DEBUG
+    lprintf("addmem(base=%p, size=%zu) => %d\n", base, size, res);
 #endif
     return res;
 }
@@ -232,8 +235,8 @@ ssize_t shim_availmem(struct uk_alloc *a)
     UNUSED(a);
 
     ssize_t s = shimmed->availmem(shimmed);
-#ifdef SHIM_VERBOSE
-    lprintf("[%s] availmem() => %zu", __func__, s);
+#ifdef CONFIG_LIBWILDE_ALLOC_DEBUG
+    lprintf("availmem() => %zu", s);
 #endif
     return s;
 }
@@ -248,7 +251,7 @@ struct uk_alloc *shim_init(void)
         return NULL;
     }
 
-    lprintf("Found a proper allocator to shim at %"__PRIuptr"\n",
+    dprintf("Found a proper allocator to shim at %"__PRIuptr"\n",
            (uintptr_t) shimmed);
 
 
@@ -279,6 +282,6 @@ struct uk_alloc *shim_init(void)
         return NULL;
     }
 
-    lprintf("Shimmied shim at %p\n", &shim);
+    dprintf("Shimmied shim at %p\n", &shim);
     return &shim;
 }
