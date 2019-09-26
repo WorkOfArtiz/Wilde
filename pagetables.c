@@ -238,6 +238,78 @@ static uintptr_t pt_get_phys(uintptr_t vaddr, bool create)
     return *p4 & PT_P4_MASK_ADDR;
 }
 
+
+
+static void print_p4(p4_t *p4_p, uintptr_t vaddr)
+{
+    for (uintptr_t p4 = 0; p4 < PT_P4_ENTRIES; p4++) {
+        p4_t p4_e = p4_p[p4];
+        p4_t p4_v = vaddr + (p4 << PT_P4_VA_SHIFT);
+
+        if (!(p4_e & PT_P4_PRESENT))
+            continue;
+
+        lprintf("  |   |   |   |- p4[%3d] 4Kb page mapping vaddr %p-%p to phys %p-%p\n", (int) p4,
+            (void *) p4_v,
+            (void *) (p4_v + __PAGE_SIZE - 1),
+            (void *) pt_pte_to_pt(&p4_e),
+            (void *) ((char *) pt_pte_to_pt(&p4_e) + __PAGE_SIZE - 1)
+        );
+    }
+}
+
+static void print_p3(p3_t *p3_p, uintptr_t vaddr)
+{
+    for (uintptr_t p3 = 0; p3 < PT_P3_ENTRIES; p3++) {
+        p3_t p3_e = p3_p[p3];
+        uintptr_t p3_v = vaddr + (p3 << PT_P3_VA_SHIFT);
+
+        if (!(p3_e & PT_P3_PRESENT))
+            continue;
+
+        if (p3_e & PT_P3_2MB) {
+            char *phys = (char *) pt_pte_to_pt(&p3_e);
+
+            lprintf("  |   |   |- p3[%3d] 2Mb page mapping vaddr %p-%p to phys %p-%p\n", (int) p3,
+                (void *) p3_v,
+                (void *) (p3_v + (1 << PT_P3_VA_SHIFT) - 1),
+                (void *) phys,
+                (void *) (phys + (1 << PT_P3_VA_SHIFT) - 1)
+            );
+
+            continue;
+        }
+
+        p4_t *p4_p = pt_pte_to_pt(&p3_e);
+        lprintf("  |   |   |- p3[%3d] entry -> %p\n", (int) p3, p4_p);
+        print_p4(p4_p, p3_v);
+    }
+}
+
+static void print_p2(p2_t *p2_p, uintptr_t vaddr)
+{
+    for (uintptr_t p2 = 0; p2 < PT_P2_ENTRIES; p2++) {
+        p2_t p2_e = p2_p[p2];
+        uintptr_t p2_v = vaddr + (p2 << PT_P2_VA_SHIFT);
+
+        if (!(p2_e & PT_P2_PRESENT))
+            continue;
+
+        if (p2_e & PT_P2_1GB) {
+            lprintf("  |   |- p2[%3d] 1Gb page mapping %p-%p\n", (int) p2,
+                (void *) p2_v,
+                (void *) (p2_v + (1 << PT_P2_VA_SHIFT) - 1)
+            );
+
+            continue;
+        }
+
+        p3_t *p3_p = pt_pte_to_pt(&p2_e);
+        lprintf("  |   |- p2[%3d] entry -> %p\n", (int) p2, p3_p);
+        print_p3(p3_p, p2_v);
+    }
+}
+
 void print_pgtables(void)
 {
     p1_t *p1_p = (p1_t *) rcr3();
@@ -251,68 +323,8 @@ void print_pgtables(void)
             continue;
         
         p2_t *p2_p = pt_pte_to_pt(&p1_e);
-
-        if (p1 == 0)
         lprintf("  |- p1[%3d] entry -> %p\n", (int) p1, p2_p);
-
-        for (uintptr_t p2 = 0; p2 < PT_P2_ENTRIES; p2++) {
-            p2_t p2_e = p2_p[p2];
-            uintptr_t p2_v = p1_v + (p2 << PT_P2_VA_SHIFT);
-
-            if (!(p2_e & PT_P2_PRESENT))
-                continue;
-
-            if (p2_e & PT_P2_1GB) {
-                lprintf("  |   |- p2[%3d] 1Gb page mapping %p-%p\n", (int) p2,
-                    (void *) p2_v,
-                    (void *) (p2_v + (1 << PT_P2_VA_SHIFT) - 1)
-                );
-
-                continue;
-            }
-
-            p3_t *p3_p = pt_pte_to_pt(&p2_e);
-            lprintf("  |   |- p2[%3d] entry -> %p\n", (int) p2, p3_p);
-
-            for (uintptr_t p3 = 0; p3 < PT_P3_ENTRIES; p3++) {
-                p3_t p3_e = p3_p[p3];
-                uintptr_t p3_v = p2_v + (p3 << PT_P3_VA_SHIFT);
-
-                if (!(p3_e & PT_P3_PRESENT))
-                    continue;
-
-                if (p3_e & PT_P3_2MB) {
-                    char *phys = (char *) pt_pte_to_pt(&p3_e);
-
-                    lprintf("  |   |   |- p3[%3d] 2Mb page mapping vaddr %p-%p to phys %p-%p\n", (int) p3,
-                        (void *) p3_v,
-                        (void *) (p3_v + (1 << PT_P3_VA_SHIFT) - 1),
-                        (void *) phys,
-                        (void *) (phys + (1 << PT_P3_VA_SHIFT) - 1)
-                    );
-
-                    continue;
-                }
-
-                p4_t *p4_p = pt_pte_to_pt(&p3_e);
-                lprintf("  |   |   |- p3[%3d] entry -> %p\n", (int) p3, p4_p);
-
-                for (uintptr_t p4 = 0; p4 < PT_P4_ENTRIES; p4++) {
-                    p4_t p4_e = p4_p[p4];
-                    p4_t p4_v = p3_v + (p4 << PT_P4_VA_SHIFT);
-
-                    if (!(p4_e & PT_P4_PRESENT))
-                        continue;
-
-                    lprintf("  |   |   |   |- p4[%3d] 4Kb page mapping vaddr %p-%p to phys %p-%p\n", (int) p4,
-                        (void *) p4_v,
-                        (void *) (p4_v + __PAGE_SIZE - 1),
-                        (void *) pt_pte_to_pt(&p4_e),
-                        (void *) ((char *) pt_pte_to_pt(&p4_e) + __PAGE_SIZE - 1)
-                    );
-                }   
-            }
-        }
+        print_p2(p2_p, p1_v);
     }
 }
 
@@ -344,193 +356,14 @@ void unmap_range(void *addr, size_t size)
     for (size_t i = 0; i < size; i += 4096) {
         uintptr_t vaddr = (uintptr_t) (addr + i);
 
-        p1_t *p1 = pt_get_p1_pte(cr3, vaddr, true);
-        lprintf("p1 = %p\n", p1);
+        p1_t *p1 = pt_get_p1_pte(cr3, vaddr, false);
+        p2_t *p2 = pt_get_p2_pte(pt_pte_to_pt(p1), vaddr, false);
+        p3_t *p3 = pt_get_p3_pte(pt_pte_to_pt(p2), vaddr, false);
+        p4_t *p4 = pt_get_p4_pte(pt_pte_to_pt(p3), vaddr, false);
 
-        p2_t *p2 = pt_get_p2_pte(pt_pte_to_pt(p1), vaddr, true);
-        lprintf("p2 = %p\n", p2);
-        
-        p3_t *p3 = pt_get_p3_pte(pt_pte_to_pt(p2), vaddr, true);
-        lprintf("p3 = %p\n", p3);
-        
-        p4_t *p4 = pt_get_p4_pte(pt_pte_to_pt(p3), vaddr, true);
-        lprintf("p4 = %p\n", p4);
-        UK_ASSERT(p4);
+        if (!p4)
+            UK_CRASH("Something went horribly wrong, couldnt unmap %p", addr);
 
         *p4 = ~0ULL & !PT_P4_PRESENT;
     }
 }
-
-
-// static void pt_get_entry(uintptr_t *pte, uintptr_t vaddr, bool create);
-// static void pt_get_pte(uintptr_t *pde, uintptr_t vaddr, bool create)
-
-
-
-
-// static void print_pte(uintptr_t *pte, uintptr_t vaddr)
-// {
-//     for (uintptr_t i = 0; i < PTE_ENTRIES; i++)
-//     {
-//         uintptr_t pte_entry = pte[i];
-//         if (pte_entry & PTE_MASK_READ)
-//             printf("      Addresses %p-%p have a 4Kb mapping\n",
-//                     (void *) (vaddr + (i << PTE_VA_SHIFT)),
-//                     (void *) (vaddr + ((i+1) << PTE_VA_SHIFT) - 1)
-//                   );
-//     }
-// }
-
-// static void print_pde(uintptr_t *pde, uintptr_t vaddr)
-// {
-//     for (uintptr_t i = 0; i < PDE_ENTRIES; i++)
-//     {
-//         uintptr_t pde_entry = pde[i];
-//         if (pde_entry & PDE_MASK_READ)
-//         {
-//             if (pde_entry & PDE_MASK_2MB)
-//                 printf("    Addresses %p-%p have a 2Mb mapping\n",
-//                         (void *) (vaddr + (i << PDE_VA_SHIFT)),
-//                         (void *) (vaddr + ((i+1) << PDE_VA_SHIFT) - 1)
-//                       );
-//             else
-//                 print_pte(
-//                         (void *) (pde_entry & PDE_MASK_ADDR),
-//                         vaddr + (i << PDE_VA_SHIFT)
-//                         );
-//         }
-//     }
-// }
-
-// static void print_pdpt(uintptr_t *pdpt, uintptr_t vaddr) {
-//     // printf("-> Now printing pdp table, vaddrs %p-%p\n",
-//     //   (void *) (vaddr),
-//     //   (void *) (vaddr + PDPT_VA_SHIFT - 1));
-//     // printf("  =======================b===================\n");
-
-//     for (uintptr_t i = 0; i < PDPT_ENTRIES; i++) {
-//         uintptr_t pdpt_entry = pdpt[i];
-//         if (pdpt_entry & PDPTE_MASK_READ) {
-//             if (pdpt_entry & PDPTE_MASK_1GB)
-//                 printf("  Addresses %p-%p have a 1Gb mapping\n",
-//                         (void *) (vaddr + (i << PDPT_VA_SHIFT)),
-//                         (void *) (vaddr + ((i+1) << PDPT_VA_SHIFT))
-//                       );
-//             else {
-//                 print_pde((void *) (pdpt_entry & PDPTE_MASK_ADDR),
-//                         vaddr + (i << PDPT_VA_SHIFT));
-//             }
-//         }
-
-//     }
-// }
-
-// void print_pml4(uintptr_t *pml4)
-// {
-//     for (uintptr_t i = 0; i < PML4_ENTRIES; i++) {
-//         uintptr_t pml4_entry = pml4[i];
-
-//         if (pml4_entry & PML4E_MASK_READ)
-//             print_pdpt((void *) (pml4_entry & PML4E_MASK_ADDR), i << PML4_VA_SHIFT);
-//     }
-// }
-
-// uintptr_t *find_unused_pte(uintptr_t *pte, uintptr_t *vaddr)
-// {
-//     uintptr_t init_vaddr = *vaddr;
-
-//     for (uintptr_t i = 0; i < PTE_ENTRIES; i++) {
-//         uintptr_t pte_entry = pte[i];
-
-//         *vaddr = init_vaddr + i * PTE_VA_SHIFT;
-    
-//         if (PTE_MASK_READ & pte_entry)
-//             continue;
-        
-//         return &pte[i];
-//     }
-
-//     return NULL;
-// }
-
-
-// uintptr_t *find_unused_pde(uintptr_t *pde, uintptr_t *vaddr, bool auto_create, bool small)
-// {
-//     uintptr_t init_vaddr = *vaddr;
-
-//     for (uintptr_t i = 0; i < PDE_ENTRIES; i++) {
-//         uintptr_t pde_entry = pde[i];
-
-//         *vaddr = init_vaddr + i * PDE_VA_SHIFT;
-
-//         // TODO hack garbage collection into this later
-//         if (!small && !(pde_entry & PDE_MASK_READ))
-//             return &pde[i];
-
-//         if (!small || (!(pde_entry & PDE_MASK_READ) && !auto_create))
-//             continue;
-
-//         uintptr_t *attempt = find_unused_pte((void *) (pde_entry & PDPTE_MASK_READ), vaddr);
-//         if (attempt)
-//             return attempt;
-
-//     }
-
-//     return NULL;
-// }
-
-// uintptr_t *find_unused_pdpt(uintptr_t *pdpt, uintptr_t *vaddr, bool auto_create, bool small)
-// {
-//     uintptr_t init_vaddr = *vaddr;
-
-//     for (uintptr_t i = 0; i < PDPT_ENTRIES; i++) {
-//         uintptr_t pdpt_entry = pdpt[i];
-
-//         if (!(pdpt_entry & PDPTE_MASK_READ) && !auto_create)
-//             continue;
-
-//         *vaddr = init_vaddr + i * PDPT_VA_SHIFT;
-
-//         if (!(pdpt_entry & PDPTE_MASK_READ))
-//             return find_unused_pde(add_pde(&pdpt[i]), vaddr, auto_create, small);
-
-//         uintptr_t *attempt = find_unused_pde((void *) (pdpt_entry & PDPTE_MASK_READ), vaddr, auto_create, small);
-//         if (attempt)
-//             return attempt;
-//     }
-
-//     return NULL;
-// }
-
-// uintptr_t *find_unused_pml4(uintptr_t *pml4, uintptr_t *vaddr, bool auto_create, bool small)
-// {
-//     for (uintptr_t i = 0; i < PML4_ENTRIES; i++) {
-//         uintptr_t pml4_entry = pml4[i];
-
-//         if (!(pml4_entry & PML4E_MASK_READ) && !auto_create)
-//             continue;
-
-//         *vaddr = i * PML4_VA_SHIFT;
-
-//         if (!(pml4_entry & PML4E_MASK_READ))
-//             return find_unused_pdpt(add_pdpt(&pml4[i]), vaddr, true, small);
-
-//         uintptr_t *attempt = find_unused_pdpt((void *) (pml4_entry & PML4E_MASK_ADDR), vaddr, auto_create, small);
-//         if (attempt)
-//             return attempt;
-//     }
-
-//     *vaddr = NULL;
-//     return NULL;
-// }
-
-// uintptr_t *find_unused_2Mb(uintptr_t *vaddr)
-// {
-//     return find_unused_pml4(rcr3(), vaddr, true, false);
-// }
-
-// uintptr_t *find_unused_4Kb(uintptr_t *vaddr)
-// {
-//     return find_unused_pml4(rcr3(), vaddr, true, true);
-// }
-

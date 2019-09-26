@@ -168,7 +168,6 @@ void shim_free(struct uk_alloc *a, void *ptr)
 
 #ifdef SHIM_INTERCEPT
     void *real_ptr = wilde_map_rm(ptr);
-    lprintf("real_ptr = %p", real_ptr);
 #else
     void *real_ptr = ptr;
 #endif
