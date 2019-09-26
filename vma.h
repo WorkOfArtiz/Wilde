@@ -37,11 +37,11 @@ struct vma {
 
 extern struct vma *freelist;
 
-// struct vma *vma_freelist_pop();
-// void        vma_freelist_push(struct vma *t);
-// void        vma_unlink(struct vma *t);
+struct vma *vma_freelist_pop();
+void vma_freelist_push(struct vma *t);
+void vma_unlink(struct vma *t);
 struct vma *vma_clear(struct vma *t);
-// struct vma *vma_alloc();
-// void        vma_free(struct vma *v);
+struct vma *vma_alloc();
+void vma_free(struct vma *v);
 
 #endif /* __WILDE_VMA_H__ */

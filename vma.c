@@ -24,34 +24,34 @@
  */
 #include "vma.h"
 
-// struct vma *freelist = NULL;
+struct vma *freelist = NULL;
 
-// struct vma *vma_freelist_pop()
-// {
-//   struct vma *current = freelist;
-//   struct vma *next = current->next;
-//   if (next)
-//     next->prev = NULL;
+struct vma *vma_freelist_pop()
+{
+  struct vma *current = freelist;
+  struct vma *next = current->next;
+  if (next)
+    next->prev = NULL;
 
-//   freelist = next;
-//   return current;
-// }
+  freelist = next;
+  return current;
+}
 
-// void vma_freelist_push(struct vma *t)
-// {
-//   t->next = freelist;
-//   freelist->prev = t;
-//   freelist = t;
-// }
+void vma_freelist_push(struct vma *t)
+{
+  t->next = freelist;
+  freelist->prev = t;
+  freelist = t;
+}
 
-// void vma_unlink(struct vma *t)
-// {
-//   if (t->prev)
-//     t->prev->next = t->next;
+void vma_unlink(struct vma *t)
+{
+  if (t->prev)
+    t->prev->next = t->next;
 
-//   if (t->next)
-//     t->next->prev = t->prev;
-// }
+  if (t->next)
+    t->next->prev = t->prev;
+}
 
 struct vma *vma_clear(struct vma *t)
 {
@@ -62,21 +62,21 @@ struct vma *vma_clear(struct vma *t)
   return t;
 }
 
-// struct vma *vma_alloc()
-// {
-//   if (freelist)
-//     return vma_clear(vma_pop());
+struct vma *vma_alloc()
+{
+  if (freelist)
+    return vma_clear(vma_pop());
 
-//   int vma_pages = _PAGESIZE / sizeof(struct vma);
-//   struct vma *to_add = shimmed->malloc(vma_pages);
+  int vma_pages = _PAGESIZE / sizeof(struct vma);
+  struct vma *to_add = shimmed->malloc(vma_pages);
 
-//   for (int i = 0; i < vma_pages - 1; i++)
-//     vma_freelist_push(vma_clear(&to_add[i]));
+  for (int i = 0; i < vma_pages - 1; i++)
+    vma_freelist_push(vma_clear(&to_add[i]));
 
-//   return vma_clear(&to_add[vma_pages - 1]);
-// }
+  return vma_clear(&to_add[vma_pages - 1]);
+}
 
-// void vma_free(struct vma *v)
-// {
-//   vma_freelist_push(vma_clear(v));
-// }
+void vma_free(struct vma *v)
+{
+  vma_freelist_push(vma_clear(v));
+}
