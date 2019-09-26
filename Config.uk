@@ -1,0 +1,22 @@
+menuconfig LIBWILDE
+			 bool "wilde: An OSCAR allocator"
+			 select LIBNOLIBC if !HAVE_LIBC
+			 select LIBUKDEBUG
+			 select LIBUKALLOC
+			 depends on (ARCH_X86_64 && PLAT_KVM)
+			 default n
+			 help
+			 				An OSCAR paper implementation, using vmem mappings
+			 				to ensure temporal safety
+
+if (LIBWILDE)
+
+config LIBWILDE_SHAUN
+			bool "Electric Sheep"
+			default n
+			help
+				To help out with security, an additional feature is to put a guard page 
+				behind every virtual memory allocation mapping. This essentially gives a 
+				weak variant of overflow detection.
+endif
+

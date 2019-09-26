@@ -1,0 +1,34 @@
+
+#################################################################################
+# Library registration
+################################################################################
+$(eval $(call addlib_s,libwilde,$(CONFIG_LIBWILDE)))
+
+################################################################################
+# Library includes
+################################################################################
+CINCLUDES-$(CONFIG_LIBWILDE) += -I$(LIBWILDE_BASE)/include
+CXXINCLUDES-$(CONFIG_LIBWILDE) += -I$(LIBWILDE_BASE)/include
+
+################################################################################
+# Library flags
+################################################################################
+LIBWILDE_CFLAGS-y += -Wtype-limits -Wunused-parameter
+LIBWILDE_CFLAGS-$(CONFIG_WILDE_DEBUG) += -DDEBUG
+
+LIBWILDE_SRCS-y += $(LIBWILDE_BASE)/alias.c \
+                   $(LIBWILDE_BASE)/pagetables.c \
+                   $(LIBWILDE_BASE)/shimming.c \
+                   $(LIBWILDE_BASE)/wilde_internal.c
+
+# LIBWILDE_SRCS-y += $(LIBWILDE_BASE)/shimming.c \
+#                    $(LIBWILDE_BASE)/alias.c \
+#                    $(LIBWILDE_BASE)/pagetables.c
+
+
+# $(eval $(call addlib_s,libwilde,$(CONFIG_LIBWILDE)))
+# 
+# CINCLUDES-$(CONFIG_LIBWILDE)	+= -I$(LIBWILDE_BASE)/include
+# CXXINCLUDES-$(CONFIG_LIBWILDE)	+= -I$(LIBWILDE_BASE)/include
+# 
+# LIBWILDE_SRCS-y += $(LIBWILDE_BASE)/wilde.c
