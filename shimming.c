@@ -21,13 +21,13 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
- * 
+ *
  ***************************************************************************
- * 
+ *
  * This file contains the shim implementation, it registers a new allocator
  * that passes all memory interface calls on to the previous allocator.
- * 
- * This is done to modify the return values, hardening the interface, the 
+ *
+ * This is done to modify the return values, hardening the interface, the
  * implementation of the hardening is in wilde_internal.{c,h}
  */
 #include <stdio.h>
@@ -80,8 +80,8 @@ void* shim_calloc(struct uk_alloc *a, size_t nmemb, size_t size)
 
     void *res = shimmed->calloc(shimmed, nmemb, size);
 
-#ifdef CONFIG_LIBWILDE_ALLOC_DEBUG    
-    lprintf("calloc(nmemb=%zu, size=%zu) => %p\n", 
+#ifdef CONFIG_LIBWILDE_ALLOC_DEBUG
+    lprintf("calloc(nmemb=%zu, size=%zu) => %p\n",
         nmemb, size, res);
 #endif
 
@@ -152,6 +152,7 @@ void* shim_realloc(struct uk_alloc *a, void *ptr, size_t size)
 #ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
     return wilde_map_new(res, size);
 #else
+
     return res;
 #endif
 }
@@ -203,7 +204,7 @@ void shim_pfree(struct uk_alloc *a, void *ptr, size_t order)
 
 #ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
     void *real_ptr = wilde_map_rm(ptr);
-    
+
     if (real_ptr == NULL)
         UK_CRASH("invalid free\n");
 #else

@@ -53,7 +53,7 @@
 struct vma available;
 
 void *wilde_map_new(void *real_addr, size_t size)
-{  
+{
   /* calculate start and end of page range in which the original allocation falls */
   uintptr_t page_start = ROUNDDOWN(((uintptr_t) real_addr), __PAGE_SIZE);
   uintptr_t page_end   = ROUNDUP((uintptr_t) (real_addr + size), __PAGE_SIZE);
@@ -75,9 +75,9 @@ void *wilde_map_new(void *real_addr, size_t size)
   remap_range((void *) page_start, alias_base_addr, map_size);
 
   /* add to administration */
-  alias_register((uintptr_t) real_addr, (uintptr_t) alias_base_addr + offset, size);  
+  alias_register((uintptr_t) real_addr, (uintptr_t) alias_base_addr + offset, size);
 
-  /* 
+  /*
    * if we're adding electric sheep, add another page to the reservation, which
    * obviously should not be mapped.
    */
@@ -96,11 +96,11 @@ void *wilde_map_rm(void *map_addr)
 {
   dprintf("Removing allocation at %p\n", map_addr);
   const struct alias *result = alias_search((uintptr_t) map_addr);
-  
   if (result == NULL)
     return NULL;
 
-  dprintf("Found an alias mapping at %p\n", result);
+  dprintf("Found an alias mapping at {.alias=%p, .origin=%p, .size=%ld}\n",
+    (void *) result->alias, (void *) result->origin, result->size);
 
   void  *real_addr = (void *) result->origin;
 
@@ -109,9 +109,11 @@ void *wilde_map_rm(void *map_addr)
   uintptr_t page_end   = ROUNDUP((result->alias + result->size), __PAGE_SIZE);
 
   /* calculate internal offset and required map size */
-  size_t    map_size   = page_end - page_start;  
+  size_t    map_size   = page_end - page_start;
 
   unmap_range((void *) page_start, map_size);
+  alias_unregister((uintptr_t) map_addr);
+
   return real_addr;
 }
 
@@ -138,11 +140,11 @@ struct uk_alloc *wilde_init()
   lprintf("Filling with random data\n");
   for (unsigned i = 0; i < __PAGE_SIZE; i++)
     page[i] = i;
-  
+
   char *remote_alias = (void *) (4ULL << (8 * 4));
 
   remap_range(page, remote_alias, __PAGE_SIZE);
-  
+
   for (unsigned i = 0; i < 2; i++) {
     lprintf("%u\n", i);
     lprintf("%d, %d\n", (char) i % 10, remote_alias[i]);

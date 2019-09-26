@@ -245,6 +245,7 @@ static void print_p4(p4_t *p4_p, uintptr_t vaddr)
     for (uintptr_t p4 = 0; p4 < PT_P4_ENTRIES; p4++) {
         p4_t p4_e = p4_p[p4];
         p4_t p4_v = vaddr + (p4 << PT_P4_VA_SHIFT);
+        UNUSED(p4_v);
 
         if (!(p4_e & PT_P4_PRESENT))
             continue;
@@ -268,13 +269,11 @@ static void print_p3(p3_t *p3_p, uintptr_t vaddr)
             continue;
 
         if (p3_e & PT_P3_2MB) {
-            char *phys = (char *) pt_pte_to_pt(&p3_e);
-
             dprintf("  |   |   |- p3[%3d] 2Mb page mapping vaddr %p-%p to phys %p-%p\n", (int) p3,
                 (void *) p3_v,
-                (void *) (p3_v + (1 << PT_P3_VA_SHIFT) - 1),
+                (void *) ((char *) pt_pte_to_pt(&p3_e) + (1 << PT_P3_VA_SHIFT) - 1),
                 (void *) phys,
-                (void *) (phys + (1 << PT_P3_VA_SHIFT) - 1)
+                (void *) ((char *) pt_pte_to_pt(&p3_e) + (1 << PT_P3_VA_SHIFT) - 1)
             );
 
             continue;
@@ -350,7 +349,7 @@ void remap_range(void *from, void *to, size_t size)
 
 void unmap_range(void *addr, size_t size)
 {
-    lprintf("unmapping range %p-%p\n", addr, addr + size);
+    dprintf("unmapping range %p-%p\n", addr, addr + size);
     p1_t *cr3 = (p1_t *) rcr3();
 
     for (size_t i = 0; i < size; i += 4096) {
