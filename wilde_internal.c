@@ -31,7 +31,11 @@
  *     [X] on alloc, find new piece of memory
  *     [X] on free, find original allocation
  */
+#define COLOR COLOR_RED
+
 #include <uk/alloc.h>
+#include <uk/ctors.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include "wilde_internal.h"
@@ -39,20 +43,63 @@
 #include "alias.h"
 #include "vma.h"
 #include "shimming.h"
-
-#define COLOR "33"
 #include "util.h"
 
-#define MB               ((1UL) << 10))
-#define GB ((1UL << 20))
-#define TB ((1UL << 30))
+#define KB ((1UL) << 10)
+#define MB ((1UL) << 20)
+#define GB ((1UL) << 30)
+#define TB ((1UL) << 40)
+
 #define VMAP_START (2 * TB)
 #define VMAP_SIZE (2 * GB)
 
-/* available space, later to be extended to include GC */
-struct vma available;
+/* define lists */
+UK_LIST_HEAD(vmem_free);
+UK_LIST_HEAD(vmem_gc);
 
-void *wilde_map_new(void *real_addr, size_t size)
+static void print_sz(size_t size)
+{
+  char *ext = "bytes";
+
+  if (size > 1024) {
+    size /= 1024;
+    ext = "Kb";
+  }
+
+  if (size > 1024) {
+    size /= 1024;
+    ext = "Mb";
+  }
+
+  if (size > 1024) {
+    size /= 1024;
+    ext = "Gb";
+  }
+
+  uk_pr_crit("%zu %s", size, ext);
+}
+
+void wilde_map_init(void)
+{
+  dprintf("Initialising the vmem structs\n");
+
+  struct vma *initial = vma_alloc();
+  *initial = (struct vma) {
+    .addr = VMAP_START,
+    .size = VMAP_SIZE,
+    .list = UK_LIST_HEAD_INIT(initial->list)
+  };
+
+  uk_list_add_tail(&initial->list, &vmem_free);
+
+  dprintf("Let's see if it was added:\n");
+  struct vma *iter;
+  uk_list_for_each_entry(iter, &vmem_free, list) {
+    dprintf(" -> vma {.addr=%p, .size=%zu}\n", (void *) iter->addr, iter->size);
+  }
+}
+
+void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
 {
   /* calculate start and end of page range in which the original allocation
    * falls */
@@ -63,35 +110,60 @@ void *wilde_map_new(void *real_addr, size_t size)
   size_t offset = ((uintptr_t)real_addr) - page_start;
   size_t map_size = page_end - page_start;
 
-#ifndef CONFIG_LIBWILDE_SHAUN
-  /* we need to map a number of pages */
-  UK_ASSERT(map_size < available.size);
-#else
-  /* in case of shaun, we need an additional available page */
-  UK_ASSERT(map_size < available.size + __PAGE_SIZE);
-#endif
 
-  /* now map in the range at the alias */
-  void *alias_base_addr = (void *)available.addr;
-  remap_range((void *)page_start, alias_base_addr, map_size);
+  struct vma *iter;
+  
+  /* Assert we have any freelist */
+  UK_ASSERT(!uk_list_empty(&vmem_free));
 
-  /* add to administration */
-  alias_register((uintptr_t)real_addr, (uintptr_t)alias_base_addr + offset,
-                 size);
+  dprintf("Going to loop over all vmem_free entries:\n");
+  uk_list_for_each_entry(iter, &vmem_free, list) {
+    dprintf(" -> vma {.addr=%p, .size=%zu}\n", (void *) iter->addr, iter->size);
 
-  /*
-   * if we're adding electric sheep, add another page to the reservation, which
-   * obviously should not be mapped.
-   */
-#ifdef CONFIG_LIBWILDE_SHAUN
-  map_size += __PAGE_SIZE;
-#endif
+    uintptr_t aligned = ROUNDUP(iter->addr, alignment);
+    ssize_t   remaining = iter->size - (aligned - iter->addr);
 
-  /* change the available space */
-  available.addr += map_size;
-  available.size -= map_size;
+    /* can create an aligned allocation */
+    if (remaining >= (ssize_t) map_size) {
 
-  return alias_base_addr + offset;
+      /* Cut off bit before */
+      if (aligned != iter->addr)
+        iter = vma_split(iter, aligned);
+
+      /* Cut off bit after */
+      if (remaining > (ssize_t) map_size)
+        vma_split(iter, aligned + map_size);
+
+      /* remove vma from vmem_free list */
+      uk_list_del_init(&iter->list);
+
+      /* register the alias in our quick lookup */
+      alias_register((uintptr_t) real_addr, iter->addr + offset, size);
+      
+      /* remap the memory range */
+      remap_range((void *)page_start, (void *) iter->addr, map_size);
+
+      /* free the vma struct pointer */
+      vma_free(iter);
+
+      return (void *) aligned;
+    }
+  }
+
+  uk_pr_crit("couldn't alloc chunk of ");
+  print_sz(map_size);
+  uk_pr_crit("aligned to a size of %zu\n", alignment);
+  UK_CRASH("My life is over");
+
+// #ifndef CONFIG_LIBWILDE_SHAUN
+//   /* we need to map a number of pages */
+//   UK_ASSERT(map_size < available.size);
+// #else
+//   /* in case of shaun, we need an additional available page */
+//   UK_ASSERT(map_size < available.size + __PAGE_SIZE);
+// #endif
+
+  return NULL;
 }
 
 void *wilde_map_rm(void *map_addr)
@@ -127,34 +199,17 @@ void *wilde_map_get(void *map_addr)
   return (void *)a->origin;
 }
 
-struct uk_alloc *wilde_init()
+static void wilde_init(void)
 {
-  struct uk_alloc *shim = shim_init();
+  uk_pr_info("Initialising lib wilde\n");
 
   /* set up VMA */
-  // available = vma_alloc();
-  available.addr = VMAP_START;
-  available.size = VMAP_SIZE;
-
-#if 0
-  char *page = shimmed->memalign(shimmed, __PAGE_SIZE, __PAGE_SIZE);
-  lprintf("Allocated random page @ %p\n", page);
-
-  lprintf("Filling with random data\n");
-  for (unsigned i = 0; i < __PAGE_SIZE; i++)
-    page[i] = i;
-
-  char *remote_alias = (void *) (4ULL << (8 * 4));
-
-  remap_range(page, remote_alias, __PAGE_SIZE);
-
-  for (unsigned i = 0; i < 2; i++) {
-    lprintf("%u\n", i);
-    lprintf("%d, %d\n", (char) i % 10, remote_alias[i]);
-    UK_ASSERT((char) i % 10 == remote_alias[i]);
-  }
-  remap_range((void *) 0x201000ULL, (void *) (4ULL << (8 * 4)), __PAGE_SIZE);
-#endif
-
-  return shim;
+  uk_pr_crit("vspace size:");
+  print_sz(VMAP_SIZE);
+  uk_pr_crit("\n");
+  shim_init();
 }
+
+#ifndef CONFIG_LIBWILDE_DISABLE_WILDE
+UK_CTOR_FUNC(1, wilde_init);
+#endif
