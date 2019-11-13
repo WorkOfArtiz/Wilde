@@ -32,6 +32,9 @@ static __inline void tlbflush(void)
 
 #define POW2(x) (1 << x)
 
+#define PT_ENTRIES 512
+#define PT_MASK_ADDR 0xfffffffffffff000ULL
+
 #define PT_P1_ENTRIES 512
 // #define PT_P1_VA_SHIFT       39
 #define PT_P1_VA_SHIFT ((12) + 9 * 3)

@@ -1,4 +1,4 @@
-#define COLOR "34"
+#define COLOR COLOR_BLUE
 #include "util.h"
 #include "pagetables.h"
 #include "shimming.h"
@@ -90,9 +90,10 @@ typedef uintptr_t p4_t;
 static inline uintptr_t pt_create()
 {
   uintptr_t *page = shimmed->memalign(shimmed, __PAGE_SIZE, __PAGE_SIZE);
+  memset(page, 0, __PAGE_SIZE);
 
-  for (int i = 0; i < PT_P1_ENTRIES; i++)
-    page[i] = !PT_P1_PRESENT;
+  // for (int i = 0; i < PT_P1_ENTRIES; i++)
+  //  page[i] = !PT_P1_PRESENT;
 
   dprintf("Allocated new page at %p\n", page);
   return (uintptr_t)page;
@@ -117,7 +118,7 @@ static inline p2_t *pt_get_p1_pte(uintptr_t *p1, uintptr_t vaddr, bool create)
 
   if (create) {
     dprintf("Creating new page table\n");
-    *entry = PT_P1_PRESENT | pt_create();
+    *entry = PT_P1_PRESENT | PT_P1_WRITE | pt_create();
     return entry;
   }
 
@@ -135,7 +136,7 @@ static inline p2_t *pt_get_p2_pte(uintptr_t *p2, uintptr_t vaddr, bool create)
 
   if (create) {
     dprintf("Creating new page table\n");
-    *entry = PT_P2_PRESENT | pt_create();
+    *entry = PT_P2_PRESENT | PT_P2_WRITE | pt_create();
     return entry;
   }
 
@@ -153,7 +154,7 @@ static inline p3_t *pt_get_p3_pte(uintptr_t *p3, uintptr_t vaddr, bool create)
 
   if (create) {
     dprintf("Creating new page table\n");
-    *entry = PT_P3_PRESENT | pt_create();
+    *entry = PT_P3_PRESENT | PT_P3_WRITE | pt_create();
     return entry;
   }
 
@@ -170,21 +171,50 @@ static inline p4_t *pt_get_p4_pte(uintptr_t *p4, uintptr_t vaddr, bool create)
     return entry;
 
   if (create) {
-    dprintf("Creating new page table\n");
-    *entry = PT_P4_PRESENT | pt_create();
+    // dprintf("Creating new page table\n");
+    *entry = PT_P4_PRESENT | PT_P4_WRITE | pt_create();
     return entry;
   }
 
   return NULL;
 }
 
+/*
+ * Page walks down the page table
+ *
+ * if no path exists 2 things can happen
+ *  !create return NULL
+ *  create -> path (p1, p2, p3, p4 tables) are allocated and populated, returns
+ *    the entry for p4
+static inline p4_t *page_walk(uintptr_t vaddr, bool create)
+{
+    p1_t *p1 = &rcr3()[PT_P1_IDX(vaddr)];
+    if (!(*p1 & PT_P1_PRESENT))
+        if (create)
+            *p1 = PT_P1_PRESENT | PT_P1_WRITE | pt_create();
+        else
+            return NULL;
+
+    p2_t *p2 = pt_pte_to_pt(*p1)[PT_P2_IDX(vaddr)];
+    if (!(*p1 & PT_P1_PRESENT))
+        if (create)
+            *p1 = PT_P1_PRESENT | PT_P1_WRITE | pt_create();
+        else
+            return NULL;
+
+
+
+
+}
+*/
+
 void print_binary_number(uintptr_t x)
 {
-  hprintf("bin {");
+  dprintf("bin {");
   for (unsigned i = 0; i < sizeof(uintptr_t) * 8; i++) {
-    hprintf("%c", (x & (1 << (sizeof(x) * 8 - i - 1))) ? '1' : '0');
+    dprintf("%c", (x & (1 << (sizeof(x) * 8 - i - 1))) ? '1' : '0');
   }
-  hprintf("}");
+  dprintf("}");
 
   // char arr[sizeof(x) * 8 + 1];
 
@@ -193,7 +223,7 @@ void print_binary_number(uintptr_t x)
   // }
   // arr[sizeof(x)*8] = '\0';
 
-  // hprintf("%s", arr);
+  // dprintf("%s", arr);
 }
 
 static uintptr_t pt_get_phys(uintptr_t vaddr, bool create)
@@ -210,6 +240,7 @@ static uintptr_t pt_get_phys(uintptr_t vaddr, bool create)
   if ((!p2 || !(*p2 | PT_P2_PRESENT)) && !create)
     return 0;
 
+  // edge case 1, p2 can be a 1Gb page
   if (p2 && (*p2 & PT_P2_1GB) && (*p2 & PT_P2_PRESENT)) {
     dprintf("get_phys %p 1 gb, phys = %p\n", (void *)vaddr,
             (void *)((*p2 & PT_P2_MASK_ADDR) + (vaddr & MASK_1GB)));
@@ -248,11 +279,12 @@ static void print_p4(p4_t *p4_p, uintptr_t vaddr)
     if (!(p4_e & PT_P4_PRESENT))
       continue;
 
-    dprintf(
-        "  |   |   |   |- p4[%3d] 4Kb page mapping vaddr %p-%p to phys %p-%p\n",
-        (int)p4, (void *)p4_v, (void *)(p4_v + __PAGE_SIZE - 1),
-        (void *)pt_pte_to_pt(&p4_e),
-        (void *)((char *)pt_pte_to_pt(&p4_e) + __PAGE_SIZE - 1));
+    dprintf("  |   |   |   |- p4[%3d] 4Kb page mapping vaddr %p-%p to phys "
+            "%p-%p [bits:%llx]\n",
+            (int)p4, (void *)p4_v, (void *)(p4_v + __PAGE_SIZE - 1),
+            (void *)pt_pte_to_pt(&p4_e),
+            (void *)((char *)pt_pte_to_pt(&p4_e) + __PAGE_SIZE - 1),
+            p4_e & 0b111111111ULL);
   }
 }
 
@@ -266,18 +298,20 @@ static void print_p3(p3_t *p3_p, uintptr_t vaddr)
       continue;
 
     if (p3_e & PT_P3_2MB) {
-      dprintf(
-          "  |   |   |- p3[%3d] 2Mb page mapping vaddr %p-%p to phys %p-%p\n",
-          (int)p3, (void *)p3_v,
-          (void *)((char *)pt_pte_to_pt(&p3_e) + (1 << PT_P3_VA_SHIFT) - 1),
-          (void *)phys,
-          (void *)((char *)pt_pte_to_pt(&p3_e) + (1 << PT_P3_VA_SHIFT) - 1));
+      dprintf("  |   |   |- p3[%3d] 2Mb page mapping vaddr %p-%p to phys %p-%p "
+              "[bits:%llx]\n",
+              (int)p3, (void *)p3_v,
+              (void *)((char *)pt_pte_to_pt(&p3_e) + (1 << PT_P3_VA_SHIFT) - 1),
+              (void *)pt_pte_to_pt(&p3_e),
+              (void *)((char *)pt_pte_to_pt(&p3_e) + (1 << PT_P3_VA_SHIFT) - 1),
+              p3_e & 0b111111111ULL);
 
       continue;
     }
 
     p4_t *p4_p = pt_pte_to_pt(&p3_e);
-    dprintf("  |   |   |- p3[%3d] entry -> %p\n", (int)p3, p4_p);
+    dprintf("  |   |   |- p3[%3d] entry -> %p [bits: %llx]\n", (int)p3, p4_p,
+            p3_e & 0b111111111ULL);
     print_p4(p4_p, p3_v);
   }
 }
@@ -299,17 +333,15 @@ static void print_p2(p2_t *p2_p, uintptr_t vaddr)
     }
 
     p3_t *p3_p = pt_pte_to_pt(&p2_e);
-    dprintf("  |   |- p2[%3d] entry -> %p\n", (int)p2, p3_p);
+    dprintf("  |   |- p2[%3d] entry -> %p [bits:%llx]\n", (int)p2, p3_p,
+            p2_e & 0b111111111ULL);
     print_p3(p3_p, p2_v);
   }
 }
 
-void print_pgtables(void)
+static void print_p1(p1_t *p1_p)
 {
-  p1_t *p1_p = (p1_t *)rcr3();
-  dprintf("cr3: %p\n", p1_p);
-
-  for (uintptr_t p1 = 0; p1 < PT_P1_ENTRIES; p1++) {
+  for (uintptr_t p1 = 1; p1 < PT_P1_ENTRIES; p1++) {
     p1_t p1_e = p1_p[p1];
     uintptr_t p1_v = p1 << PT_P1_VA_SHIFT;
 
@@ -322,27 +354,96 @@ void print_pgtables(void)
   }
 }
 
+void print_pgtables(void)
+{
+  p1_t *p1_p = (p1_t *)rcr3();
+  dprintf("cr3: %p\n", p1_p);
+  print_p1(p1_p);
+}
+
+static uintptr_t *pt_next(uintptr_t *ptr, size_t index, uintptr_t flags)
+{
+  if ((ptr[index] & flags) == flags) {
+    // dprintf("new page table not required, passing next pointer\n");
+    return (uintptr_t *)(ptr[index] & PT_MASK_ADDR);
+  }
+
+  uintptr_t next = pt_create();
+  ptr[index] = flags | next;
+  return (uintptr_t *)next;
+}
+
 void remap_range(void *from, void *to, size_t size)
 {
   dprintf("remap_range %p-%p => %p-%p\n", from, from + size - 1, to,
           to + size - 1);
-  p1_t *cr3 = (p1_t *)rcr3();
 
-  for (size_t i = 0; i < size; i += 4096) {
-    uintptr_t addr = pt_get_phys((uintptr_t)from + i, false);
+  /* I'm lazy, assume from is phys */
+  UK_ASSERT((uintptr_t)from < (1UL << 30));
 
-    uintptr_t vaddr = (uintptr_t)(to + i);
-    dprintf(" -> remapping phys page %p to %p\n", (void *)addr, (void *)vaddr);
+  size_t p1i = PT_P1_IDX((uintptr_t)to);
+  size_t p2i = PT_P2_IDX((uintptr_t)to);
+  size_t p3i = PT_P3_IDX((uintptr_t)to);
+  size_t p4i = PT_P4_IDX((uintptr_t)to);
 
-    p1_t *p1 = pt_get_p1_pte(cr3, vaddr, true);
-    p2_t *p2 = pt_get_p2_pte(pt_pte_to_pt(p1), vaddr, true);
-    p3_t *p3 = pt_get_p3_pte(pt_pte_to_pt(p2), vaddr, true);
-    p4_t *p4 = pt_get_p4_pte(pt_pte_to_pt(p3), vaddr, true);
+  dprintf("start: [%zu, %zu, %zu, %zu]\n", p1i, p2i, p3i, p4i);
 
-    *p4 = addr | PT_P4_PRESENT | PT_P4_WRITE;
+  /* customised optimised page walking, auto create */
+  p1_t *p1 = (p1_t *)rcr3(); /* read the cr3 register to get a base */
+  // dprintf("p1: %p [p1[vaddr]=%zu]\n", p1, p1[p1i]);
+  p2_t *p2 = pt_next(p1, p1i, PT_P1_PRESENT | PT_P1_WRITE);
+  // dprintf("p2: %p [p2[vaddr]=%zu]\n", p2, p2[p2i]);
+  p3_t *p3 = pt_next(p2, p2i, PT_P2_PRESENT | PT_P2_WRITE);
+  // dprintf("p3: %p [p3[vaddr]=%zu]\n", p3, p3[p3i]);
+  p4_t *p4 = pt_next(p3, p3i, PT_P3_PRESENT | PT_P3_WRITE);
+  // dprintf("p4: %p [p4[vaddr]=%zu]\n", p4, p4[p4i]);
+
+  for (size_t offset = 0; offset < size; offset += __PAGE_SIZE) {
+    // dprintf("mapping in %p = [%zu, %zu, %zu, %zu] <- %p\n", to + offset, p1i,
+    // p2i, p3i, p4i, (from + offset));
+
+    /* assert we don't overwrite an entry */
+    UK_ASSERT(!(p4[p4i] & PT_P4_PRESENT));
+
+    /* write the new entry in p4 table, pointing to previous memory */
+    p4[p4i] = (p4_t)(from + offset) | PT_P4_PRESENT | PT_P4_WRITE;
+
+    /* avoid creation of 1 too many page table pages */
+    if (offset + __PAGE_SIZE >= size)
+      break;
+
+    /* cascading updating */
+    p4i = (p4i + 1) % PT_P4_ENTRIES;
+    if (p4i == 0) {
+      p3i = (p3i + 1) % PT_P3_ENTRIES;
+
+      if (p3i == 0) {
+        p2i = (p2i + 1) % PT_P2_ENTRIES;
+
+        if (p2i == 0) {
+          p1i++;
+          p2 = pt_next(p1, p1i, PT_P1_PRESENT | PT_P1_WRITE);
+        }
+
+        p3 = pt_next(p2, p2i, PT_P2_PRESENT | PT_P2_WRITE);
+      }
+
+      p4 = pt_next(p3, p3i, PT_P3_PRESENT | PT_P3_WRITE);
+    }
   }
+
+  // print_pgtables();
+
+#ifdef CONFIG_LIBWILDE_TEST
+  /* test if memory mapped correctly */
+  uint32_t val = 0;
+  for (size_t offset = 0; offset < size; offset += __PAGE_SIZE)
+    val += ((char *)to)[offset];
+#endif
+
 }
 
+#warning "Reimplement unmap_range with pt_next for improved performance"
 void unmap_range(void *addr, size_t size)
 {
   dprintf("unmapping range %p-%p\n", addr, addr + size);
