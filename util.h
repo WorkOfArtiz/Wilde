@@ -1,6 +1,15 @@
 #ifndef __WILDE_UTIL_H__
 #define __WILDE_UTIL_H__
 
+/* snprintf */
+#include <stdio.h>
+
+/* strlen */
+#include <string.h>
+
+/* uk_coutk */
+#include <uk/plat/console.h>
+
 /* page size */
 #include <uk/arch/limits.h>
 
@@ -40,28 +49,55 @@
 #endif
 
 #ifdef CONFIG_LIBWILDE_COLOR
+
+#define COLOR_RED "\033[1;31m"
+#define COLOR_GREEN "\033[1;32m"
+#define COLOR_YELLOW "\033[1;33m"
+#define COLOR_BLUE "\033[1;34m"
+#define COLOR_PURPLE "\033[1;35m"
+#define COLOR_CYAN "\033[1;36m"
+#define COLOR_WHITE "\033[1;37m"
+#define COLOR_RST "\033[0m"
+
+#ifndef COLOR
+#define COLOR COLOR_PURPLE
+#endif
+
 #define lprintf(fmt, ...)                                                      \
   ({                                                                           \
     char $buf[50 + sizeof(__func__) * 3];                                      \
-    sprintf($buf, "[\033[1;" COLOR "mwilde:%s\033[0m]", __func__);             \
+    sprintf($buf, "[" COLOR "wilde:%s" COLOR_RST "]", __func__);               \
     hprintf("%-30s " fmt, $buf, ##__VA_ARGS__);                                \
   })
 
 #else
+
+#define COLOR_RED ""
+#define COLOR_GREEN ""
+#define COLOR_YELLOW ""
+#define COLOR_BLUE ""
+#define COLOR_PURPLE ""
+#define COLOR_CYAN ""
+#define COLOR_WHITE ""
+#define COLOR_RST ""
+
 #define lprintf(fmt, ...)                                                      \
   ({                                                                           \
     char $buf[50 + sizeof(__func__) * 3];                                      \
     sprintf($buf, "[wilde:%s]", __func__);                                     \
     hprintf("%-20s " fmt, $buf, ##__VA_ARGS__);                                \
   })
+
+  
 #endif
 
 #define hprintf(...)                                                           \
   ({                                                                           \
     int ret;                                                                   \
-    while ((ret = printf(__VA_ARGS__)) == -EINTR || ret == -EAGAIN) {          \
+    char $$$buf[1024];                                                         \
+    int len = snprintf($$$buf, 1023, __VA_ARGS__);                             \
+    while ((ret = ukplat_coutk($$$buf, len)) == -EINTR || ret == -EAGAIN) {    \
     }                                                                          \
     ret;                                                                       \
   })
-
 #endif
