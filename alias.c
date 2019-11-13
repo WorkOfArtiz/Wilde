@@ -1,4 +1,4 @@
-#define COLOR "33"
+#define COLOR COLOR_GREEN
 
 #include <uk/assert.h>
 #include <stdlib.h>
