@@ -22,61 +22,69 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
+#include "shimming.h"
 #include "vma.h"
 
 struct vma *freelist = NULL;
 
-struct vma *vma_freelist_pop()
-{
-  struct vma *current = freelist;
-  struct vma *next = current->next;
-  if (next)
-    next->prev = NULL;
+static void vma_batch_alloc(void) {
+  dprintf("Allocating a new batch of vma structs\n");
 
-  freelist = next;
-  return current;
-}
+  struct vma *vmas = shimmed->palloc(shimmed, 3);
+  UK_ASSERT(vmas);
 
-void vma_freelist_push(struct vma *t)
-{
-  t->next = freelist;
-  freelist->prev = t;
-  freelist = t;
-}
-
-void vma_unlink(struct vma *t)
-{
-  if (t->prev)
-    t->prev->next = t->next;
-
-  if (t->next)
-    t->next->prev = t->prev;
-}
-
-struct vma *vma_clear(struct vma *t)
-{
-  t->size = -1;
-  t->addr = 0;
-  t->prev = NULL;
-  t->next = NULL;
-  return t;
+  for (int i = 0; i < (__PAGE_SIZE << 3); i++)
+    vma_free(&vmas[i]);
 }
 
 struct vma *vma_alloc()
 {
-  if (freelist)
-    return vma_clear(vma_pop());
+  if (!freelist)
+    vma_batch_alloc();
 
-  int vma_pages = _PAGESIZE / sizeof(struct vma);
-  struct vma *to_add = shimmed->malloc(vma_pages);
+  /* get last entry and decouple */
+  struct vma *last = uk_list_last_entry(&freelist->list, struct vma, list);
+  uk_list_del_init(&last->list);
 
-  for (int i = 0; i < vma_pages - 1; i++)
-    vma_freelist_push(vma_clear(&to_add[i]));
-
-  return vma_clear(&to_add[vma_pages - 1]);
+  last->size = 0;
+  last->addr = 0;
+  return last;
 }
 
 void vma_free(struct vma *v)
 {
-  vma_freelist_push(vma_clear(v));
+  *v = (struct vma) {
+    .size = 0,
+    .addr = 0, 
+    .list = UK_LIST_HEAD_INIT(v->list)
+  };
+
+  if (freelist)
+    uk_list_add(&v->list, &freelist->list);
+  else
+    freelist = v;
+}
+
+struct vma *vma_split(struct vma *v, uintptr_t addr)
+{
+  UK_ASSERT(addr > VMA_BEGIN(v));
+  UK_ASSERT(addr < VMA_END(v));
+
+  struct vma *res = vma_alloc();
+  res->addr = addr;
+  res->size = (v->size - (addr - v->addr));
+  v->size -= res->size;
+
+  uk_list_add(&res->list, &v->list);
+  return res;
+}
+
+struct vma *vma_join(struct vma *v1, struct vma *v2)
+{
+  UK_ASSERT(VMA_END(v1) == VMA_BEGIN(v2));
+
+  v1 += v2->size;
+  uk_list_del(&v2->list);
+  vma_free(v2);
+  return v1;
 }
