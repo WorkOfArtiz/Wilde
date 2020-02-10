@@ -36,9 +36,9 @@ static __inline void tlbflush(void)
 #define PT_MASK_ADDR 0xfffffffffffff000ULL
 
 #define PT_P1_ENTRIES 512
-// #define PT_P1_VA_SHIFT       39
+//#define PT_P1_VA_SHIFT       39
 #define PT_P1_VA_SHIFT ((12) + 9 * 3)
-#define PT_P1_IDX(Vaddr) ((Vaddr >> PT_P1_VA_SHIFT) & 127)
+#define PT_P1_IDX(Vaddr) ((Vaddr >> PT_P1_VA_SHIFT) & ((1 << 9) - 1))
 #define PT_P1_PRESENT POW2(0)
 #define PT_P1_WRITE POW2(1)
 #define PT_P1_EXEC POW2(2)
@@ -48,8 +48,8 @@ static __inline void tlbflush(void)
 
 #define PT_P2_ENTRIES 512
 #define PT_P2_VA_SHIFT ((12) + 9 * 2)
-// #define PT_P2_VA_SHIFT       30
-#define PT_P2_IDX(Vaddr) ((Vaddr >> PT_P2_VA_SHIFT) & 127)
+//#define PT_P2_VA_SHIFT       30
+#define PT_P2_IDX(Vaddr) ((Vaddr >> PT_P2_VA_SHIFT) & ((1 << 9) - 1))
 #define PT_P2_PRESENT POW2(0)
 #define PT_P2_WRITE POW2(1)
 #define PT_P2_EXEC POW2(2)
@@ -60,9 +60,9 @@ static __inline void tlbflush(void)
 #define PT_P2_MASK_ADDR 0xfffffffffffff000ULL
 
 #define PT_P3_ENTRIES 512
-// #define PT_P3_VA_SHIFT        21
+//#define PT_P3_VA_SHIFT        21
 #define PT_P3_VA_SHIFT ((12) + 9 * 1)
-#define PT_P3_IDX(Vaddr) ((Vaddr >> PT_P3_VA_SHIFT) & 127)
+#define PT_P3_IDX(Vaddr) ((Vaddr >> PT_P3_VA_SHIFT) & ((1 << 9) - 1))
 #define PT_P3_PRESENT POW2(0)
 #define PT_P3_WRITE POW2(1)
 #define PT_P3_EXEC POW2(2)
@@ -74,7 +74,7 @@ static __inline void tlbflush(void)
 #define PT_P4_ENTRIES 512
 #define PT_P4_VA_SHIFT ((12) + 9 * 0)
 //#define PT_P4_VA_SHIFT        21
-#define PT_P4_IDX(Vaddr) ((Vaddr >> PT_P4_VA_SHIFT) & 127)
+#define PT_P4_IDX(Vaddr) ((Vaddr >> PT_P4_VA_SHIFT) & ((1 << 9) - 1))
 #define PT_P4_PRESENT POW2(0)
 #define PT_P4_WRITE POW2(1)
 #define PT_P4_EXEC POW2(2)

@@ -34,14 +34,16 @@ extern struct uk_list_head vmem_gc;   /* vmem chunks ready for gc */
 /*
  * wilde internals
  *   - wilde_map_init will create and initialise the vmas, requires memory
- *   - wilde_map_new will create an entirely new aligned mapping of at least size 
+ *   - wilde_map_new will create an entirely new aligned mapping of at least
+ * size
  *   - wilde_map_rm will wipe a mapping, likely not to be used again
  *   - wilde_get wil try to find the allocated mapping
  */
 void wilde_map_init();
 
 /*
- * @success: returns the aligned new mapping at least large enough to hold the size
+ * @success: returns the aligned new mapping at least large enough to hold the
+ * size
  * @fail: crash
  *
  * will return NULL if NULL is given

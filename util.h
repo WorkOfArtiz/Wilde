@@ -66,7 +66,7 @@
 #define lprintf(fmt, ...)                                                      \
   ({                                                                           \
     char $buf[50 + sizeof(__func__) * 3];                                      \
-    sprintf($buf, "[" COLOR "wilde:%s" COLOR_RST "]", __func__);               \
+    sprintf($buf, "[" COLOR "%s" COLOR_RST "]", __func__);               \
     hprintf("%-30s " fmt, $buf, ##__VA_ARGS__);                                \
   })
 
@@ -84,11 +84,10 @@
 #define lprintf(fmt, ...)                                                      \
   ({                                                                           \
     char $buf[50 + sizeof(__func__) * 3];                                      \
-    sprintf($buf, "[wilde:%s]", __func__);                                     \
+    sprintf($buf, "[%s]", __func__);                                     \
     hprintf("%-20s " fmt, $buf, ##__VA_ARGS__);                                \
   })
 
-  
 #endif
 
 #define hprintf(...)                                                           \
@@ -100,4 +99,14 @@
     }                                                                          \
     ret;                                                                       \
   })
+/*
+#define hprintf(...)                                                           \
+  ({                                                                           \
+    int ret;                                                                   \
+    char $$$buf[1024];                                                         \
+    int len = snprintf($$$buf, 1023, __VA_ARGS__);                             \
+    ret = ukplat_coutk($$$buf, len);                                           \
+    ret;                                                                       \
+  })
+*/
 #endif

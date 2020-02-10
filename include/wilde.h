@@ -1,15 +1,6 @@
 #ifndef __WILDE_H__
 #define __WILDE_H__
 
-/*
- * The implemenation exists of 3 parts:
- *
- * [X] allocator injection, implemented in shimming.[ch]
- * [ ] managing allocated aliases, alias.[ch]
- * [ ] finding unused memory space
- * [ ] remapping pages with correct access rights
- */
-
 #include <uk/config.h>
 #include <uk/alloc.h>
 
@@ -22,15 +13,18 @@
 #error "Only supported on KVM, sorry (XEN probably also works tho)"
 #endif
 
-#ifdef CONFIG_LIBWILDE_SHAUN
-#warning "Electric sheep isn't fully tested, use at your own risk"
+#ifdef CONFIG_LIBWILDE_DISABLE_INJECTION
+  #warning "Wilde is only passing through calls"
+#endif
+
+#ifndef CONFIG_LIBWILDE_ZERO_MEMORY
+    #error "Risk some UB over the clock cycles necessary for just zeroing it all?"
 #endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct uk_alloc *wilde_init(void);
 void print_pgtables(void);
 
 #ifdef __cplusplus

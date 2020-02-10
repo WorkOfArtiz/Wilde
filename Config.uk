@@ -13,42 +13,78 @@ if (LIBWILDE)
 
 menu "Debugging"
 
+config LIBWILDE_TEST
+			bool "Adds small sanity check to ensure proper working"
+			default n
+			help
+				Small sanity check to see if my allocator is working correctly
+
 config LIBWILDE_ALLOC_DEBUG
 			bool "Shows allocation and allocation mappings"
 			default n
 			help
-				To help with debugging an application, it might be useful to know what 
+				To help with debugging an application, it might be useful to know what
 				an application actually allocated etc. Therefore there's this flag that
 				automatically prints all allocations
 
 config LIBWILDE_DISABLE_INJECTION
-			 bool "Stops injection"
-			 default n
-			 help
-			 	 Injecting allocations is what Wilde is for, but if you're stuck during 
-				 debugging, this turns off internals, while still allowing for the alloc
-				 debug messages
+			bool "Stops injection"
+			default n
+			help
+				Injecting allocations is what Wilde is for, but if you're stuck during
+				debugging, this turns off internals, while still allowing for the alloc
+				debug messages
+
+config LIBWILDE_DISABLE_WILDE
+			bool "Stops wilde entirely, sources will be compiled but no runtime effect"
+			default n
+			help
+				Meant for running benchmarks, this option is for removing any wilde-code from 
+				running on the platform for comparing performance.
 
 config LIBWILDE_DEBUG
-			 bool "Print all kinds of debug messages"
-			 default n
-			 help
-			 	 Will help debug libwilde itself
+			bool "Print all kinds of debug messages"
+			default n
+			help
+				Will help debug libwilde itself
 
 config LIBWILDE_COLOR
-			 bool "Enable ANSI-coloured messages"
-			 default y 
-			 help
-			 		For easier debugging
+			bool "Enable ANSI-coloured messages"
+			default y
+			help
+				For easier debugging
 
 endmenu
+
+config LIBWILDE_ZERO_MEMORY
+			bool "whether allocating calls try to zero their contents"
+			default y
+			help
+				malloc, posix_memalign etc are not guaranteed to return nulled memory.
+				Ensure it's that way.
+
+config LIBWILDE_LOCKING
+			bool "Whether locks are compiled in, requires pthreads implementation"
+			default n
+			help
+				Locks on the memory allocator interface. This is a rather pricey locking
+				mechanism. Ideally a less coarse locking model would be used here
+				instead. This was not within the scope of my thesis.
+
 
 config LIBWILDE_SHAUN
 			bool "Electric Sheep"
 			default n
 			help
-				To help out with security, an additional feature is to put a guard page 
-				behind every virtual memory allocation mapping. This essentially gives a 
+				To help out with security, an additional feature is to put a guard page
+				behind every virtual memory allocation mapping. This essentially gives a
 				weak variant of overflow detection.
+
+config LIBWILDE_BLACKSHEEP
+			bool "Black sheep"
+			default n
+			help
+				Every now and then a horrible mistake pops up, this quarantine mode puts 
+				(sizeof(object) / __PAGE_SIZE) + 1 guard pages around the object, just because
 endif
 

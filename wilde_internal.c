@@ -50,8 +50,8 @@
 #define GB ((1UL) << 30)
 #define TB ((1UL) << 40)
 
-#define VMAP_START (2 * TB)
-#define VMAP_SIZE (2 * GB)
+#define VMAP_START ((2 * GB))
+#define VMAP_SIZE  ((1 * GB))
 
 /* define lists */
 UK_LIST_HEAD(vmem_free);
@@ -84,69 +84,162 @@ void wilde_map_init(void)
   dprintf("Initialising the vmem structs\n");
 
   struct vma *initial = vma_alloc();
-  *initial = (struct vma) {
-    .addr = VMAP_START,
-    .size = VMAP_SIZE,
-    .list = UK_LIST_HEAD_INIT(initial->list)
-  };
+  *initial = (struct vma){.addr = VMAP_START,
+                          .size = VMAP_SIZE,
+                          .list = UK_LIST_HEAD_INIT(initial->list)};
 
   uk_list_add_tail(&initial->list, &vmem_free);
 
   dprintf("Let's see if it was added:\n");
   struct vma *iter;
-  uk_list_for_each_entry(iter, &vmem_free, list) {
-    dprintf(" -> vma {.addr=%p, .size=%zu}\n", (void *) iter->addr, iter->size);
+  uk_list_for_each_entry(iter, &vmem_free, list)
+  {
+    dprintf(" -> vma {.addr=%p, .size=%zu}\n", (void *)iter->addr, iter->size);
   }
 }
 
+#if 0
+/* 
+ *Relies on 
+ *pagetable.S having:
+ *
+ *  .align 0x1000
+ *  cpu_pdpt:
+ *    .quad cpu_pd + PAGETABLE_RW
+ *    .fill 0x1, 0x8, 0x0
+ *    .quad cpu_pd + PAGETABLE_RW 
+ *    .fill 0x1fd, 0x8, 0x0
+ */
+void *wilde_map_new(void *real_addr, size_t _, size_t __)
+{
+  UNUSED(_);
+  UNUSED(__);
+
+  return real_addr + (2 * GB);
+}
+
+void *wilde_map_get(void *mapped_addr)
+{
+  return mapped_addr - (2 * GB);
+}
+
+void *wilde_map_rm(void *mapped_addr)
+{
+  return wilde_map_get(mapped_addr);
+}
+#endif
+
+#if 0
+void *wilde_map_new(void *real_addr, size_t size, size_t alignment) 
+{
+  uintptr_t page_start = ROUNDDOWN(((uintptr_t)real_addr), __PAGE_SIZE);
+  uintptr_t page_end = ROUNDUP((uintptr_t)(real_addr + size), __PAGE_SIZE);
+  size_t map_size = page_end - page_start;
+  
+  UK_ASSERT(real_addr);
+  UK_ASSERT(page_start < (1 * GB));
+  UK_ASSERT(size);
+  UK_ASSERT(alignment);
+
+  alias_register((uintptr_t) real_addr, (uintptr_t) real_addr + VMAP_START, size);
+  remap_range((void *)page_start, (void *)(page_start + VMAP_START), map_size);
+  return real_addr + VMAP_START;
+}
+
+void *wilde_map_rm(void *map_addr)
+{
+  uintptr_t a = (uintptr_t) map_addr;
+  UK_ASSERT(a >= (VMAP_START));
+  UK_ASSERT(a <  (VMAP_START + 1 * GB));
+
+  const struct alias *result = alias_search(a);
+  UK_ASSERT(result);
+  UK_ASSERT(result->origin == a - VMAP_START);
+
+  void *real_addr = (void *) result->origin;
+  uintptr_t page_start = ROUNDDOWN(result->alias, __PAGE_SIZE);
+  uintptr_t page_end = ROUNDUP((result->alias + result->size), __PAGE_SIZE);
+  alias_unregister((uintptr_t)map_addr);
+  unmap_range((void *)page_start, page_end - page_start);
+  return real_addr;
+}
+
+void *wilde_map_get(void *map_addr)
+{
+  uintptr_t a = (uintptr_t) map_addr;
+  
+  UK_ASSERT(a >= (VMAP_START));
+  UK_ASSERT(a < (VMAP_START + 1 * GB));
+  return map_addr - (VMAP_START);
+}
+#endif
+
+#if 1
 void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
 {
+  dprintf("wilde_map_new(addr=%p, size=%zu, alignment=%zu)\n", real_addr, size, alignment);
   /* calculate start and end of page range in which the original allocation
    * falls */
   uintptr_t page_start = ROUNDDOWN(((uintptr_t)real_addr), __PAGE_SIZE);
   uintptr_t page_end = ROUNDUP((uintptr_t)(real_addr + size), __PAGE_SIZE);
 
-  /* calculate internal offset and required map size */
+  /* calculate internal VMAP_START and required map size */
   size_t offset = ((uintptr_t)real_addr) - page_start;
   size_t map_size = page_end - page_start;
 
+  #ifndef CONFIG_LIBWILDE_SHAUN
+    size_t reserved_size = map_size;
+  #elif CONFIG_LIBWILDE_BLACKSHEEP
+    #warning "Extreme memory wastage, use at your own peril"
+
+    /* black sheep is extreme quarantine mode, we must stop the spread! reserve massive chunks of blank space */
+    size_t reserved_size = map_size * 2 + __PAGE_SIZE;
+  #else
+    /* in case of shaun, we need an additional available page */
+    size_t reserved_size = map_size + __PAGE_SIZE;
+  #endif
 
   struct vma *iter;
-  
+
   /* Assert we have any freelist */
   UK_ASSERT(!uk_list_empty(&vmem_free));
 
-  dprintf("Going to loop over all vmem_free entries:\n");
-  uk_list_for_each_entry(iter, &vmem_free, list) {
-    dprintf(" -> vma {.addr=%p, .size=%zu}\n", (void *) iter->addr, iter->size);
+  // dprintf("Going to loop over all vmem_free entries:\n");
+  uk_list_for_each_entry(iter, &vmem_free, list)
+  {
+    dprintf(" -> free vma {.addr=%p, .size=%zu}\n", (void *)iter->addr, iter->size);
 
     uintptr_t aligned = ROUNDUP(iter->addr, alignment);
-    ssize_t   remaining = iter->size - (aligned - iter->addr);
+    ssize_t remaining = iter->size - (aligned - iter->addr);
 
     /* can create an aligned allocation */
-    if (remaining >= (ssize_t) map_size) {
+    if (remaining >= (ssize_t) reserved_size) {
 
       /* Cut off bit before */
       if (aligned != iter->addr)
         iter = vma_split(iter, aligned);
 
       /* Cut off bit after */
-      if (remaining > (ssize_t) map_size)
-        vma_split(iter, aligned + map_size);
+      if (remaining > (ssize_t) reserved_size)
+        vma_split(iter, aligned + reserved_size);
+
+      UK_ASSERT(aligned == iter->addr);
+      UK_ASSERT(reserved_size == iter->size);
 
       /* remove vma from vmem_free list */
       uk_list_del_init(&iter->list);
 
       /* register the alias in our quick lookup */
-      alias_register((uintptr_t) real_addr, iter->addr + offset, size);
-      
+      alias_register((uintptr_t)real_addr, iter->addr + offset, size);
+
       /* remap the memory range */
-      remap_range((void *)page_start, (void *) iter->addr, map_size);
+      remap_range((void *)page_start, (void *) aligned, map_size);
 
       /* free the vma struct pointer */
       vma_free(iter);
 
-      return (void *) aligned;
+      // return real_addr;
+      return (void *)(aligned + offset);
     }
   }
 
@@ -154,15 +247,6 @@ void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
   print_sz(map_size);
   uk_pr_crit("aligned to a size of %zu\n", alignment);
   UK_CRASH("My life is over");
-
-// #ifndef CONFIG_LIBWILDE_SHAUN
-//   /* we need to map a number of pages */
-//   UK_ASSERT(map_size < available.size);
-// #else
-//   /* in case of shaun, we need an additional available page */
-//   UK_ASSERT(map_size < available.size + __PAGE_SIZE);
-// #endif
-
   return NULL;
 }
 
@@ -183,7 +267,7 @@ void *wilde_map_rm(void *map_addr)
   uintptr_t page_start = ROUNDDOWN(result->alias, __PAGE_SIZE);
   uintptr_t page_end = ROUNDUP((result->alias + result->size), __PAGE_SIZE);
 
-  /* calculate internal offset and required map size */
+  /* calculate internal VMAP_START and required map size */
   size_t map_size = page_end - page_start;
 
   unmap_range((void *)page_start, map_size);
@@ -198,15 +282,24 @@ void *wilde_map_get(void *map_addr)
   UK_ASSERT(a);
   return (void *)a->origin;
 }
+#endif
+
 
 static void wilde_init(void)
 {
   uk_pr_info("Initialising lib wilde\n");
 
-  /* set up VMA */
-  uk_pr_crit("vspace size:");
+  /* set up alias hash table */
+  alias_init();
+
+  /* print memory usage */
+  uk_pr_crit("vspace size: ");
   print_sz(VMAP_SIZE);
   uk_pr_crit("\n");
+
+  uk_pr_info("Now intialising the shim\n");
+
+  /* set up shimming, which in turn will init the vma interface */
   shim_init();
 }
 

@@ -89,7 +89,10 @@ typedef uintptr_t p4_t;
 
 static inline uintptr_t pt_create()
 {
-  uintptr_t *page = shimmed->memalign(shimmed, __PAGE_SIZE, __PAGE_SIZE);
+  // dprintf("Allocating page\n");
+  uintptr_t *page = shimmed->palloc(shimmed, 1);
+  // dprintf("Allocated  page @ %p\n", page);
+  UK_ASSERT(page);
   memset(page, 0, __PAGE_SIZE);
 
   // for (int i = 0; i < PT_P1_ENTRIES; i++)
@@ -210,11 +213,11 @@ static inline p4_t *page_walk(uintptr_t vaddr, bool create)
 
 void print_binary_number(uintptr_t x)
 {
-  dprintf("bin {");
+  hprintf("bin {");
   for (unsigned i = 0; i < sizeof(uintptr_t) * 8; i++) {
-    dprintf("%c", (x & (1 << (sizeof(x) * 8 - i - 1))) ? '1' : '0');
+    hprintf("%c", (x & (1 << (sizeof(x) * 8 - i - 1))) ? '1' : '0');
   }
-  dprintf("}");
+  hprintf("}");
 
   // char arr[sizeof(x) * 8 + 1];
 
@@ -341,7 +344,7 @@ static void print_p2(p2_t *p2_p, uintptr_t vaddr)
 
 static void print_p1(p1_t *p1_p)
 {
-  for (uintptr_t p1 = 1; p1 < PT_P1_ENTRIES; p1++) {
+  for (uintptr_t p1 = 0; p1 < PT_P1_ENTRIES; p1++) {
     p1_t p1_e = p1_p[p1];
     uintptr_t p1_v = p1 << PT_P1_VA_SHIFT;
 
@@ -368,7 +371,10 @@ static uintptr_t *pt_next(uintptr_t *ptr, size_t index, uintptr_t flags)
     return (uintptr_t *)(ptr[index] & PT_MASK_ADDR);
   }
 
+  // dprintf("Allocating new page table\n");
   uintptr_t next = pt_create();
+  // dprintf("Table allocated at %p\n", (void *) next);
+
   ptr[index] = flags | next;
   return (uintptr_t *)next;
 }
@@ -386,7 +392,7 @@ void remap_range(void *from, void *to, size_t size)
   size_t p3i = PT_P3_IDX((uintptr_t)to);
   size_t p4i = PT_P4_IDX((uintptr_t)to);
 
-  dprintf("start: [%zu, %zu, %zu, %zu]\n", p1i, p2i, p3i, p4i);
+  // dprintf("start: [%zu, %zu, %zu, %zu]\n", p1i, p2i, p3i, p4i);
 
   /* customised optimised page walking, auto create */
   p1_t *p1 = (p1_t *)rcr3(); /* read the cr3 register to get a base */
@@ -399,11 +405,17 @@ void remap_range(void *from, void *to, size_t size)
   // dprintf("p4: %p [p4[vaddr]=%zu]\n", p4, p4[p4i]);
 
   for (size_t offset = 0; offset < size; offset += __PAGE_SIZE) {
-    // dprintf("mapping in %p = [%zu, %zu, %zu, %zu] <- %p\n", to + offset, p1i,
-    // p2i, p3i, p4i, (from + offset));
+    dprintf("mapping in %p = [%zu, %zu, %zu, %zu] <- %p\n", to + offset, p1i,
+      p2i, p3i, p4i, (from + offset));
 
     /* assert we don't overwrite an entry */
-    UK_ASSERT(!(p4[p4i] & PT_P4_PRESENT));
+    if (p4[p4i] & PT_P4_PRESENT) {
+      dprintf("p4 entry: %p, bits: ", (void *) (p4[p4i] & PT_MASK_ADDR));
+      print_binary_number(p4[p4i] & ~PT_MASK_ADDR);
+      dprintf("\n");
+      // print_pgtables();
+      UK_CRASH("Would have overwritten an entry\n");
+    }
 
     /* write the new entry in p4 table, pointing to previous memory */
     p4[p4i] = (p4_t)(from + offset) | PT_P4_PRESENT | PT_P4_WRITE;
@@ -422,25 +434,31 @@ void remap_range(void *from, void *to, size_t size)
 
         if (p2i == 0) {
           p1i++;
+          dprintf("Updating p2: %p\n", p2);
           p2 = pt_next(p1, p1i, PT_P1_PRESENT | PT_P1_WRITE);
+          dprintf("New      p2: %p\n", p2);
         }
 
+        dprintf("Updating p3: %p\n", p3);
         p3 = pt_next(p2, p2i, PT_P2_PRESENT | PT_P2_WRITE);
+        dprintf("New      p3: %p\n", p3);
+
       }
 
+      dprintf("Updating p4: %p\n", p4);
       p4 = pt_next(p3, p3i, PT_P3_PRESENT | PT_P3_WRITE);
+      dprintf("New      p4: %p\n", p4);
     }
   }
 
+  // dprintf("Done mapping\n");
   // print_pgtables();
 
 #ifdef CONFIG_LIBWILDE_TEST
   /* test if memory mapped correctly */
-  uint32_t val = 0;
-  for (size_t offset = 0; offset < size; offset += __PAGE_SIZE)
-    val += ((char *)to)[offset];
+  for (size_t offset = 0; offset < size; offset++)
+    UK_ASSERT(((char *)from)[offset] == ((char *)to)[offset]);
 #endif
-
 }
 
 #warning "Reimplement unmap_range with pt_next for improved performance"
