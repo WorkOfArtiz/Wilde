@@ -1,28 +1,4 @@
-/* SPDX-License-Identifier: MIT */
-/*
- * MIT License
- ****************************************************************************
- * (C) 2019 - Arthur de Fluiter - VU University Amsterdam
- ****************************************************************************
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to
- * deal in the Software without restriction, including without limitation the
- * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
- * sell copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- *
- ****************************************************************************
+/***************************************************************************
  * The implemenation exists of 3 parts:
  *
  * [X] allocator injection (making a shim of the allocator)
@@ -50,8 +26,8 @@
 #define GB ((1UL) << 30)
 #define TB ((1UL) << 40)
 
-#define VMAP_START ((2 * GB))
-#define VMAP_SIZE  ((1 * GB))
+#define VMAP_START ((4 * TB))
+#define VMAP_SIZE  ((4 * TB))
 
 /* define lists */
 UK_LIST_HEAD(vmem_free);
@@ -61,22 +37,22 @@ static void print_sz(size_t size)
 {
   char *ext = "bytes";
 
-  if (size > 1024) {
+  if (size >= 1024) {
     size /= 1024;
     ext = "Kb";
   }
 
-  if (size > 1024) {
+  if (size >= 1024) {
     size /= 1024;
     ext = "Mb";
   }
 
-  if (size > 1024) {
+  if (size >= 1024) {
     size /= 1024;
     ext = "Gb";
   }
 
-  uk_pr_crit("%zu %s", size, ext);
+  uk_pr_crit("%zu%s", size, ext);
 }
 
 void wilde_map_init(void)
@@ -99,15 +75,15 @@ void wilde_map_init(void)
 }
 
 #if 0
-/* 
- *Relies on 
+/*
+ *Relies on
  *pagetable.S having:
  *
  *  .align 0x1000
  *  cpu_pdpt:
  *    .quad cpu_pd + PAGETABLE_RW
  *    .fill 0x1, 0x8, 0x0
- *    .quad cpu_pd + PAGETABLE_RW 
+ *    .quad cpu_pd + PAGETABLE_RW
  *    .fill 0x1fd, 0x8, 0x0
  */
 void *wilde_map_new(void *real_addr, size_t _, size_t __)
@@ -130,12 +106,12 @@ void *wilde_map_rm(void *mapped_addr)
 #endif
 
 #if 0
-void *wilde_map_new(void *real_addr, size_t size, size_t alignment) 
+void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
 {
   uintptr_t page_start = ROUNDDOWN(((uintptr_t)real_addr), __PAGE_SIZE);
   uintptr_t page_end = ROUNDUP((uintptr_t)(real_addr + size), __PAGE_SIZE);
   size_t map_size = page_end - page_start;
-  
+
   UK_ASSERT(real_addr);
   UK_ASSERT(page_start < (1 * GB));
   UK_ASSERT(size);
@@ -167,7 +143,7 @@ void *wilde_map_rm(void *map_addr)
 void *wilde_map_get(void *map_addr)
 {
   uintptr_t a = (uintptr_t) map_addr;
-  
+
   UK_ASSERT(a >= (VMAP_START));
   UK_ASSERT(a < (VMAP_START + 1 * GB));
   return map_addr - (VMAP_START);
@@ -243,14 +219,16 @@ void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
     }
   }
 
-  uk_pr_crit("couldn't alloc chunk of ");
+  uk_pr_crit("couldn't alloc virtual memory chunk of ");
   print_sz(map_size);
-  uk_pr_crit("aligned to a size of %zu\n", alignment);
-  UK_CRASH("My life is over");
+  uk_pr_crit(" aligned to a size of ");
+  print_sz(alignment);
+  uk_pr_crit("\n");
+  UK_CRASH("My life is over\n");
   return NULL;
 }
 
-void *wilde_map_rm(void *map_addr)
+void *wilde_map_rm(void *map_addr, size_t *out_size)
 {
   dprintf("Removing allocation at %p\n", map_addr);
   const struct alias *result = alias_search((uintptr_t)map_addr);
@@ -261,6 +239,8 @@ void *wilde_map_rm(void *map_addr)
           (void *)result->alias, (void *)result->origin, result->size);
 
   void *real_addr = (void *)result->origin;
+  if (out_size)
+    *out_size = result->size;
 
   /* calculate start and end of page range in which the original allocation
    * falls */

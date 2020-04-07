@@ -39,7 +39,7 @@ config LIBWILDE_DISABLE_WILDE
 			bool "Stops wilde entirely, sources will be compiled but no runtime effect"
 			default n
 			help
-				Meant for running benchmarks, this option is for removing any wilde-code from 
+				Meant for running benchmarks, this option is for removing any wilde-code from
 				running on the platform for comparing performance.
 
 config LIBWILDE_DEBUG
@@ -71,7 +71,6 @@ config LIBWILDE_LOCKING
 				mechanism. Ideally a less coarse locking model would be used here
 				instead. This was not within the scope of my thesis.
 
-
 config LIBWILDE_SHAUN
 			bool "Electric Sheep"
 			default n
@@ -84,7 +83,16 @@ config LIBWILDE_BLACKSHEEP
 			bool "Black sheep"
 			default n
 			help
-				Every now and then a horrible mistake pops up, this quarantine mode puts 
+				Every now and then a horrible mistake pops up, this quarantine mode puts
 				(sizeof(object) / __PAGE_SIZE) + 1 guard pages around the object, just because
+
+config LIBWILDE_KELLOGS
+			bool "Kellogs memory subsystem"
+			default y
+			help
+				Enables the kallocs_* calls, replacing the *_ifpages functions which are
+				doodoo. This essentailly adds more accurate bufferoverflow protection mechanisms
+				to unikraft.
+
 endif
 

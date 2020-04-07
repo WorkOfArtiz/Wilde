@@ -16,15 +16,12 @@ CXXINCLUDES-$(CONFIG_LIBWILDE) += -I$(LIBWILDE_BASE)/include
 LIBWILDE_CFLAGS-y += -Wtype-limits -Wunused-parameter
 LIBWILDE_CFLAGS-$(CONFIG_WILDE_DEBUG) += -DDEBUG
 
-LIBWILDE_SRCS-y += $(LIBWILDE_BASE)/alias.c \
-                   $(LIBWILDE_BASE)/pagetables.c \
-                   $(LIBWILDE_BASE)/shimming.c \
-                   $(LIBWILDE_BASE)/vma.c \
+LIBWILDE_SRCS-y += $(LIBWILDE_BASE)/alias.c          \
+                   $(LIBWILDE_BASE)/pagetables.c     \
+                   $(LIBWILDE_BASE)/shimming.c       \
+                   $(LIBWILDE_BASE)/vma.c            \
                    $(LIBWILDE_BASE)/wilde_internal.c
 
-# $(eval $(call addlib_s,libwilde,$(CONFIG_LIBWILDE)))
-# 
-# CINCLUDES-$(CONFIG_LIBWILDE)	+= -I$(LIBWILDE_BASE)/include
-# CXXINCLUDES-$(CONFIG_LIBWILDE)	+= -I$(LIBWILDE_BASE)/include
-# 
-# LIBWILDE_SRCS-y += $(LIBWILDE_BASE)/wilde.c
+ifeq ($(CONFIG_LIBWILDE_KELLOGS),y)
+LIBWILDE_SRCS-y += $(LIBWILDE_BASE)/kallocs_malloc.c
+endif

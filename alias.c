@@ -21,14 +21,13 @@ static inline void alias_clear(struct alias *a)
   a->alias = 0;
   a->size = 0;
   a->origin = 0;
-  a->_ = 0xa11a50deadc001;
 }
 
 static void alias_batch_alloc(void)
 {
   dprintf("Allocating a new batch of alias structs\n");
   struct alias *aliases = shimmed->palloc(shimmed, 1);
-  size_t nr_aliases = __PAGE_SIZE / sizeof(struct alias);
+  size_t nr_aliases = (__PAGE_SIZE << 1) / sizeof(struct alias);
 
   UK_ASSERT(aliases);
 

@@ -7,6 +7,11 @@
 /* strlen */
 #include <string.h>
 
+#include <stdint.h>
+#include <stddef.h>
+
+#ifndef TEST
+
 /* uk_coutk */
 #include <uk/plat/console.h>
 
@@ -18,6 +23,9 @@
 
 /* configurations */
 #include <uk/config.h>
+
+#endif
+
 
 #define UNUSED(X) (void)(X)
 
@@ -34,6 +42,20 @@
   ({                                                                           \
     uintptr_t __n = (uintptr_t)(n);                                            \
     (typeof(a))(ROUNDDOWN((uintptr_t)(a) + __n - 1, __n));                     \
+  })
+
+/* bit hacks for power of 2 */
+#define IS_POWER_2(a)                                                          \
+  ({                                                                           \
+    uintptr_t __a = (uintptr_t)(a); /* only eval a once */                     \
+    __a ? (__a & (__a - 1)) == 0 : 1;                                          \
+  })
+
+/* bit hack for LOG2, WILL RETURN -1 on 0 */
+#define LOG2(a)                                                                \
+  ({                                                                           \
+    uintptr_t __a = (uintptr_t)(a); /* only eval a once */                     \
+    __a ? 63 - __builtin_clzl(__a) : -1;                                       \
   })
 
 // #ifndef COLOR

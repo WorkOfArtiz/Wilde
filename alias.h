@@ -1,6 +1,6 @@
 #ifndef __WILDE_ALIAS_H__
 #define __WILDE_ALIAS_H__
-#include <stddef.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include <uk/list.h>
 
@@ -26,7 +26,6 @@ struct alias {
   size_t size;              /* size of the alias in bytes */
   uintptr_t alias;          /* alias start address */
   uintptr_t origin;         /* original addr, used for free() */
-  uintptr_t _;              /* 0xa11a50deadc001 */
 };
 
 /* hash table */

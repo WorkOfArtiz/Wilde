@@ -381,8 +381,8 @@ static uintptr_t *pt_next(uintptr_t *ptr, size_t index, uintptr_t flags)
 
 void remap_range(void *from, void *to, size_t size)
 {
-  dprintf("remap_range %p-%p => %p-%p\n", from, from + size - 1, to,
-          to + size - 1);
+  // hprintf("Remapping range %p-%p => %p-%p\n", from, from + size - 1, to,
+          // to + size - 1);
 
   /* I'm lazy, assume from is phys */
   UK_ASSERT((uintptr_t)from < (1UL << 30));

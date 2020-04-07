@@ -6,11 +6,11 @@
 
 /* if ARCH != X64 */
 #ifndef CONFIG_ARCH_X86_64
-#error "Yeah, this aint supported on ARM64, sorry"
+  #error "Yeah, this aint supported on ARM64, sorry"
 #endif
 
 #ifndef CONFIG_PLAT_KVM
-#error "Only supported on KVM, sorry (XEN probably also works tho)"
+  #error "Only supported on KVM, sorry (XEN probably also works tho)"
 #endif
 
 #ifdef CONFIG_LIBWILDE_DISABLE_INJECTION
@@ -18,7 +18,7 @@
 #endif
 
 #ifndef CONFIG_LIBWILDE_ZERO_MEMORY
-    #error "Risk some UB over the clock cycles necessary for just zeroing it all?"
+    #warning "Risk some UB over the clock cycles necessary for just zeroing it all?"
 #endif
 
 #ifdef __cplusplus

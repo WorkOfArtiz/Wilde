@@ -1,29 +1,5 @@
 // vim: set fdm=marker:
-/* SPDX-License-Identifier: MIT */
-/*
- * MIT License
- ****************************************************************************
- * (C) 2019 - Arthur de Fluiter - VU University Amsterdam
- ****************************************************************************
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to
- * deal in the Software without restriction, including without limitation the
- * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
- * sell copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- *
- ***************************************************************************
+/***************************************************************************
  *
  * This file contains the shim implementation, it registers a new allocator
  * that passes all memory interface calls on to the previous allocator.
@@ -57,9 +33,6 @@
 // }}}
 
 // macros {{{
-/* uninitialized memory will be filled with this value */
-#define CONFIG_MEMVAL 0xff
-
 /* locking functionality for multithreading, coarse grained locking */
 #ifdef CONFIG_LIBWILDE_LOCKING
   #error "not tested"
@@ -78,6 +51,34 @@
   #define alloc_printf lprintf
 #else
   #define alloc_printf(...) do {} while (0)
+#endif
+
+#ifdef CONFIG_LIBWILDE_ZERO_MEMORY
+  /* uninitialized memory will be filled with this value */
+  #define CONFIG_MEMVAL 0x5a
+
+  #define CLEAR(Mem, Size) memset((Mem), CONFIG_MEMVAL, (Size));
+#else
+  #define CLEAR(Mem, Size) do {} while (0)
+#endif
+
+#ifdef CONFIG_LIBWILDE_KELLOGS
+#ifdef CONFIG_LIBWILDE_DISABLE_INJECTION
+  #error "Kellogs depends on the wilde engine"
+#endif
+  #include "kallocs_malloc.h"
+
+  #define kmalloc(Size)                        kallocs_malloc((Size))
+  #define kcalloc(Nmemb, Size)                 kallocs_calloc((Nmemb), (Size))
+  #define kmemalign(Align, Size)               kallocs_memalign((Align), (Size))
+  #define krealloc(Ptr, OldSize, NewSize)      kallocs_realloc((Ptr), (OldSize), (NewSize))
+  #define kfree(Ptr, Size)                     kallocs_free((Ptr),(Size))
+#else
+  #define kmalloc(Size)                        shimmed->malloc(shimmed, (Size))
+  #define kcalloc(Nmemb, Size)                 shimmed->calloc(shimmed, (Nmemb), (Size))
+  #define kmemalign(Align, Size)               shimmed->memalign(shimmed, (Align), (Size))
+  #define krealloc(Ptr, OldSize, NewSize)      shimmed->realloc(shimmed, (Ptr), (NewSize))
+  #define kfree(Ptr, Size)                     shimmed->free(shimmed, (Ptr))
 #endif
 // }}}
 
@@ -104,52 +105,36 @@ static inline void *get_caller_address(int level)
 // shim_malloc {{{
 void *shim_malloc(struct uk_alloc *a, size_t size)
 {
-  static size_t malloc_counter = 0;
-  malloc_counter++;
-
   UNUSED(a);
   UK_ASSERT(a);
   UK_ASSERT(size);
 
-  char *real_addr = shimmed->malloc(shimmed, size);
-  if (!real_addr) {
-    alloc_printf("malloc(%zu) => NULL [counter=%zu]\n", size, malloc_counter);
-    UK_CRASH("Allocating went wrong");
+#ifdef CONFIG_LIBWILDE_DISABLE_INJECTION
+
+  /* version without wilde */
+  char *address = kmalloc(size);
+  if (address == NULL) {
+    alloc_printf("malloc(%zu) => NULL\n", size);
     return NULL;
   }
+  alloc_printf("malloc(size=%zu) => %p\n", size, res);
+  return address;
 
-#ifdef CONFIG_LIBWILDE_TEST
-  for (size_t i = 0; i < size / sizeof(size_t); i++)
-    ((size_t *) real_addr)[i] = (size_t)(malloc_counter);
-#endif
-
-  char *res = real_addr;
-  dprintf("malloc(size=%zu) => %p now remapping\n", size, res);
-
-#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
-  alloc_lock();
-
-  // wrap the return value in a new mapping
-  res = wilde_map_new(res, size, __PAGE_SIZE);
-
-  alloc_unlock();
-  alloc_printf("malloc(size=%zu) => %p [real=%p, counter=%zu]\n",
-    size, res, real_addr, malloc_counter);
 #else
-  alloc_printf("malloc(size=%zu) => %p [counter=%zu]\n", size, res, malloc_counter);
-#endif
 
-#ifdef CONFIG_LIBWILDE_TEST
-  for (size_t i = 0; i < size / sizeof(size_t); i++)
-    if(((size_t *) res)[i] != malloc_counter)
-      UK_CRASH("Somehow it doesn't map to the same space\n");
-#endif
+  /* version with wilde */
+  char *real_addr = kmalloc(size);
 
-#ifdef CONFIG_LIBWILDE_ZERO_MEMORY
-  memset(res, malloc_counter, size);
-#endif
+  alloc_lock();
+  char *alias_addr = wilde_map_new(real_addr, size, __PAGE_SIZE);
+  alloc_unlock();
 
-  return res;
+  CLEAR(alias_addr, size);
+
+  alloc_printf("malloc(size=%zu) => %p [real=%p]\n", size, alias_addr, real_addr);
+  return alias_addr;
+
+#endif
 }
 // }}}
 
@@ -158,87 +143,65 @@ void *shim_calloc(struct uk_alloc *a, size_t nmemb, size_t size)
 {
   UNUSED(a);
 
-  char *real_addr = shimmed->calloc(shimmed, nmemb, size);
-  if (real_addr == NULL) {
+#ifdef CONFIG_LIBWILDE_DISABLE_INJECTION
+
+  /* version without wilde */
+  char *address = calloc(nmemb, size);
+  if (address == NULL) {
     alloc_printf("calloc(nmemb=%zu, size=%zu) => NULL\n", nmemb, size);
-    UK_CRASH("Allocating went wrong");
     return NULL;
   }
 
-#ifdef CONFIG_LIBWILDE_TEST
-  for (size_t i = 0; i < nmemb * size; i++)
-    if (real_addr[i] != 0)
-      UK_CRASH("Somehow calloc returns uninitialised memory");
-#endif
+  alloc_printf("calloc(nmemb=%zu, size=%zu) => %p []\n", nmemb, size, address);
+  return address;
 
-  char *res = real_addr;
+#else
 
-#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
-  dprintf("calloc(nmemb=%zu, size=%zu) => %p now remapping\n", nmemb, size,
-               res);
+  /* version with wilde */
+  char *real_addr = kcalloc(nmemb, size);
 
   alloc_lock();
-  res = wilde_map_new(res, nmemb * size, __PAGE_SIZE);
+  char *alias_addr = wilde_map_new(real_addr, nmemb * size, __PAGE_SIZE);
   alloc_unlock();
-  alloc_printf("calloc(nmemb=%zu, size=%zu) => %p [real=%p]\n", nmemb, size, res,
-               real_addr);
-#else
-  alloc_printf("calloc(nmemb=%zu, size=%zu) => %p []\n", nmemb, size, res);
-#endif
+  alloc_printf("calloc(nmemb=%zu, size=%zu) => %p [real=%p]\n", nmemb, size, alias_addr, real_addr);
 
-#ifdef CONFIG_LIBWILDE_TEST
-  for (size_t i = 0; i < nmemb * size; i++)
-    if (res[i] != 0)
-      UK_CRASH("Somehow it doesn't map to the same space\n");
-#endif
+  return alias_addr;
 
-  return res;
+#endif
 }
 // }}}
 
 // shim_posix_memalign {{{
-int shim_posix_memalign(struct uk_alloc *a, void **memptr, size_t align,
-                        size_t size)
+int shim_posix_memalign(struct uk_alloc *a, void **memptr, size_t align, size_t size)
 {
   UNUSED(a);
   UK_ASSERT(size);
   UK_ASSERT(size > align);
-  // UK_ASSERT(size % align == 0);
 
+#ifdef CONFIG_LIBWILDE_DISABLE_INJECTION
+
+  /* version without wilde */
   int res = shimmed->posix_memalign(shimmed, memptr, align, size);
   if (res != 0) {
-    alloc_printf("posix_memalign(memptr=%p, align=%zu, size=%zu) => %d []\n",
-                 memptr, align, size, res);
-    UK_CRASH("Allocating went wrong");
+    alloc_printf("posix_memalign(memptr=%p, align=%zu, size=%zu) => %d []\n", memptr, align, size, res);
     return res;
   }
 
-  void *real_addr = *memptr;
-  dprintf("posix_memalign(memptr=%p, align=%zu, size=%zu) => %d "
-               "[memptr=%p] now remapping\n",
-               memptr, align, size, res, *memptr);
+  alloc_printf("posix_memalign(memptr=%p, align=%zu, size=%zu) => 0 [memptr=%p]\n", memptr, align, size, real_addr);
 
-#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
+#else
+
+  /* version with wilde */
+  void *real_addr = kmemalign(align, size);
   alloc_lock();
-
-  /* intercept the return value */
-  *memptr = wilde_map_new(*memptr, size, ROUNDUP(align, __PAGE_SIZE));
-
+  *memptr = wilde_map_new(real_addr, size, ROUNDUP(align, __PAGE_SIZE));
   alloc_unlock();
 
-  alloc_printf("posix_memalign(memptr=%p, align=%zu, size=%zu) => %d "
-               "[memptr=%p, real=%p]\n",
-               memptr, align, size, res, *memptr, real_addr);
-#else
-  alloc_printf("posix_memalign(memptr=%p, align=%zu, size=%zu) => %d "
-               "[memptr=%p]\n",
-               memptr, align, size, res, real_addr);
+  alloc_printf("posix_memalign(memptr=%p, align=%zu, size=%zu) => 0 [memptr=%p, real=%p]\n", memptr, align, size, *memptr, real_addr);
+
 #endif
 
-#ifdef CONFIG_LIBWILDE_ZERO_MEMORY
-  memset(*memptr, CONFIG_MEMVAL, size);
-#endif
-
+  CLEAR(*memptr, size);
   return 0;
 }
 // }}}
@@ -246,36 +209,37 @@ int shim_posix_memalign(struct uk_alloc *a, void **memptr, size_t align,
 // shim_memalign {{{
 void *shim_memalign(struct uk_alloc *a, size_t align, size_t size)
 {
-  UK_CRASH("memalign used?");
   UNUSED(a);
+  UK_CRASH("Does anyone even use this at all?");
 
-  void *real_addr = shimmed->memalign(shimmed, align, size);
+#ifdef CONFIG_LIBWILDE_DISABLE_INJECTION
 
-  if (real_addr == NULL) {
+  /* version without wilde */
+  void *address = shimmed->memalign(shimmed, align, size);
+
+  if (address == NULL)
     alloc_printf("memalign(align=%zu, size=%zu) => NULL []\n", align, size);
-    UK_CRASH("Allocating went wrong");
-    return NULL;
+  else {
+    alloc_printf("memalign(align=%zu, size=%zu) => %p []\n", align, size, address);
+    CLEAR(address, size);
   }
 
-  void *res = real_addr;
+  return address;
 
-#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
-  dprintf("memalign(align=%zu, size=%zu) => %p now remapping\n", align,
-               size, res);
+#else
+
+  /* version with wilde */
+  void *real_addr = kmemalign(align, size);
 
   alloc_lock();
-  res = wilde_map_new(res, size, ROUNDUP(size, __PAGE_SIZE));
+  void *alias_addr = wilde_map_new(real_addr, size, ROUNDUP(size, __PAGE_SIZE));
   alloc_unlock();
-  alloc_printf("memalign(align=%zu, size=%zu) => %p [real=%p]\n", align, size,
-               res, real_addr);
-#else
-  alloc_printf("memalign(align=%zu, size=%zu) => %p []\n", align, size,
-               res);
+
+  alloc_printf("memalign(align=%zu, size=%zu) => %p [real=%p]\n", align, size, alias_addr, real_addr);
+
+  CLEAR(alias_addr, size);
+  return alias_addr;
 #endif
-
-  UK_ASSERT(!PTRISERR(res));
-
-  return res;
 }
 // }}}
 
@@ -283,79 +247,48 @@ void *shim_memalign(struct uk_alloc *a, size_t align, size_t size)
 void *shim_realloc(struct uk_alloc *a, void *ptr, size_t size)
 {
   UNUSED(a);
-  // print_pgtables();
-
-  void *old_real_addr = ptr;
-  void *new_real_addr;
-  void *res;
-
-  // POSIX DEFINED EDGE CASE
-  if (ptr == NULL) {
-    dprintf("realloc(ptr=NULL, size=%zu) regular alloc", size);
-
-    // realloc acts as malloc here
-    char *real_addr = shimmed->malloc(shimmed, size);
-    if (!real_addr) {
-        alloc_printf("realloc(ptr=NULL, size=%zu) => NULL []\n", size);
-        UK_CRASH("Allocating went wrong");
-        return NULL;
-    }
 
 #ifdef CONFIG_LIBWILDE_DISABLE_INJECTION
-    res = real_addr;
-    alloc_printf("realloc(ptr=NULL, size=%zu) => %p []\n", size, real_addr);
+
+  /* version without wilde */
+  void *address = shimmed->realloc(shimmed, ptr, size);
+  alloc_printf("realloc(ptr=%p, size=%ld) => %p []\n", ptr, size, address);
+  return address;
+
 #else
+
+  /* edge case */
+  if (ptr == NULL) {
+    void *real_addr = kmalloc(size);
+
     alloc_lock();
-    res = wilde_map_new(real_addr, size, __PAGE_SIZE);
+    void *alias_addr = wilde_map_new(real_addr, size, __PAGE_SIZE);
     alloc_unlock();
-    alloc_printf("realloc(ptr=NULL, size=%zu) => %p [real_addr=%p]\n", size, res, real_addr);
-#endif
 
-#ifdef CONFIG_LIBWILDE_ZERO_MEMORY
-    memset(res, CONFIG_MEMVAL, size);
-#else
-  #error "whatever"
-#endif
-
-    return res;
+    alloc_printf("realloc(ptr=NULL, size=%ld) => %p [real=%p]\n", size, alias_addr, real_addr);
+    return alias_addr;
   }
 
-#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
-  dprintf("realloc(ptr=%p, size=%zu) now resolving\n", ptr, size);
+
+  /* version with wilde */
+  size_t old_size;
 
   alloc_lock();
-  old_real_addr = wilde_map_rm(ptr);
-  alloc_printf(" -> ptr %p resolves to %p\n", ptr, old_real_addr);
-
-  if (old_real_addr == NULL) {
+  void *old_real = wilde_map_rm(ptr, &old_size);
+  if (old_real == NULL) {
     alloc_unlock();
-    UK_CRASH("[wilde] caught invalid free\n");
-    return NULL;
+    UK_CRASH("[%s] invalid free at %p\n", __func__, ptr);
   }
 
-  new_real_addr = shimmed->realloc(shimmed, old_real_addr, size);
-
-  if (new_real_addr == NULL) {
-    alloc_printf("realloc(ptr=%p, size=%zu) => NULL [real=%p]\n", ptr,
-                 size, old_real_addr);
-    alloc_unlock();
-    UK_CRASH("Allocating went wrong");
-    return NULL;
-  }
-
-  res = wilde_map_new(new_real_addr, size, __PAGE_SIZE);
+  void *new_real = krealloc(old_real, old_size, size);
+  void *new_alias = wilde_map_new(new_real, size, __PAGE_SIZE);
   alloc_unlock();
-  alloc_printf("realloc(ptr=%p, size=%zu) => %p [real_ptr=%p, real_ret=%p]\n",
-          ptr, size, res, old_real_addr, new_real_addr);
 
-#else // CONFIG_LIBWILDE_DISABLE_INJECTION
-  res = shimmed->realloc(shimmed, ptr, size);
-  alloc_printf("realloc(ptr=%p, size=%zu) => %p\n", ptr, size, res);
+  alloc_printf("realloc(ptr=%p, size=%zu) => %p [old_real=%p, new_real=%p]\n", ptr, size, new_alias, old_real, new_real);
+
+  return new_alias;
+
 #endif
-
-  UK_ASSERT(!PTRISERR(res));
-
-  return res;
 }
 // }}}
 
@@ -364,34 +297,33 @@ void shim_free(struct uk_alloc *a, void *ptr)
 {
   UNUSED(a);
 
-  /* POSIX defined behaviour */
   if (ptr == NULL) {
-    alloc_printf("free(ptr=NULL) => 0 []\n");
+    alloc_printf("free(ptr=NULL) => 0\n");
     return;
   }
 
-  void *real_addr = ptr;
+#ifdef CONFIG_LIBWILDE_DISABLE_INJECTION
 
-#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
-  dprintf("free(ptr=%p) now resolving\n", ptr);
+  /* version without wilde */
+  shimmed->free(shimmed, ptr);
+  alloc_printf("free(ptr=%p) => 0\n", ptr);
+
+#else
+
+  /* version with wilde */
+  size_t size;
+
   alloc_lock();
-  real_addr = wilde_map_rm(ptr);
+  void  *real_addr = wilde_map_rm(ptr, &size);
   alloc_unlock();
 
-  if (real_addr == NULL) {
-    UK_CRASH("invalid free\n");
-    // alloc_unlock();
-    //alloc_printf("free(ptr=%p) was done in old allocator, passing through\n", ptr);
-    // shimmed->free(shimmed, ptr);
-    // return;
-  }
+  if (real_addr == NULL)
+    UK_CRASH("[%s] invalid free at %p\n", __func__, ptr);
 
-  alloc_printf("free(ptr=%p) => 0 [ptr_real=%p]\n", ptr, real_addr);
-#else
-  alloc_printf("free(ptr=%p) => 0\n", real_addr);
+  kfree(real_addr, size);
+  alloc_printf("free(ptr=%p) => 0 [real_addr=%p, size=%ld]\n", ptr, real_addr, size);
+
 #endif
-
-  shimmed->free(shimmed, real_addr);
 }
 // }}}
 
@@ -399,59 +331,59 @@ void shim_free(struct uk_alloc *a, void *ptr)
 #if CONFIG_LIBUKALLOC_IFPAGES
 void *shim_palloc(struct uk_alloc *a, size_t order)
 {
+
   UNUSED(a);
 
-  void *real_addr = shimmed->palloc(shimmed, order);
-  if (real_addr == NULL) {
+  void *address = shimmed->palloc(shimmed, order);
+  if (address == NULL) {
     alloc_printf("palloc(order=%zu) => NULL\n", order);
     UK_CRASH("Allocating went wrong");
   }
 
-  void *res = real_addr;
+#ifdef CONFIG_LIBWILDE_DISABLE_INJECTION
 
-#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
-  dprintf("palloc(order=%zu) => %p now resolving\n", order, real_addr);
-  alloc_lock();
+  /* version without wilde */
+  alloc_printf("palloc(order=%zu) => %p []\n", order, address);
+  CLEAR(address, __PAGE_SIZE << order);
+  return address;
 
-  res = wilde_map_new(res, __PAGE_SIZE << order, __PAGE_SIZE << order);
-
-  alloc_unlock();
-  alloc_printf("palloc(order=%zu) => %p[real=%p]\n", order, res, real_addr);
 #else
-  alloc_printf("palloc(order=%zu) => %p[]\n", order, res);
-#endif
 
-#ifdef CONFIG_LIBWILDE_ZERO_MEMORY
-  memset(res, CONFIG_MEMVAL, 1 << order);
-#endif
+  /* version with wilde */
+  alloc_lock();
+  void *alias_addr = wilde_map_new(address, __PAGE_SIZE << order, __PAGE_SIZE << order);
+  alloc_unlock();
 
-  return res;
+  alloc_printf("palloc(order=%zu) => %p [real=%p]\n", order, alias_addr, address);
+  CLEAR(alias_addr, __PAGE_SIZE << order);
+  return alias_addr;
+#endif
 }
 
 void shim_pfree(struct uk_alloc *a, void *ptr, size_t order)
 {
   UNUSED(a);
-  void *real_addr = ptr;
-  dprintf("pfree(ptr=%p, order=%zu) resolving now\n", ptr, order);
 
-#ifndef CONFIG_LIBWILDE_DISABLE_INJECTION
+#ifdef CONFIG_LIBWILDE_DISABLE_INJECTION
+
+  /* version without wilde */
+  CLEAR(ptr, __PAGE_SIZE << order);
+  shimmed->pfree(shimmed, ptr, order);
+  alloc_printf("pfree(ptr=%p, order=%zu) => 0\n", ptr, order);
+
+#else
+
+  // Clear first so we'll hit page boundries if we do it wrong
+  CLEAR(ptr, __PAGE_SIZE << order);
+
+  /* version with wilde */
   alloc_lock();
-  real_addr = wilde_map_rm(ptr);
+  void *real_addr = wilde_map_rm(ptr, NULL);
   alloc_unlock();
 
-  if (real_addr == NULL)
-    UK_CRASH("invalid free\n");
-
-  alloc_printf("pfree(ptr=%p, order=%zu) => 0 [real=%p]\n", ptr, order, real_addr);
-#else
-  alloc_printf("pfree(ptr=%p, order=%zu) => 0\n", ptr, order);
-#endif
-
-#ifdef CONFIG_LIBWILDE_ZERO_MEMORY
-  memset(real_addr, CONFIG_MEMVAL, 1 << order);
-#endif
-
   shimmed->pfree(shimmed, real_addr, order);
+  alloc_printf("pfree(ptr=%p, order=%zu) => 0 [real=%p]\n", ptr, order, real_addr);
+#endif
 }
 #endif
 // }}}
@@ -490,7 +422,7 @@ ssize_t shim_availmem(struct uk_alloc *a)
   UNUSED(a);
 
   ssize_t s = shimmed->availmem(shimmed);
-  alloc_printf("availmem() => %zu", s);
+  alloc_printf("availmem() => %zu\n", s);
   return s;
 }
 #endif
@@ -499,20 +431,15 @@ ssize_t shim_availmem(struct uk_alloc *a)
 // shim_init {{{
 void *shim_init(void)
 {
-  // print_pgtables();
-  // UK_CRASH("done mapping\n");
-
-  uk_pr_err("inserting shim @%p\n", &shim);
+  uk_pr_debug("inserting shim @%p\n", &shim);
   shimmed = uk_alloc_get_default();
-  if (!shimmed) {
-    uk_pr_err("Couldn't get previous allocator, going to init allocbuddy\n");
-  } else {
+
+  if (!shimmed)
+    uk_pr_debug("Couldn't get previous allocator, going to init allocbuddy\n");
+  else
     wilde_map_init();
-  }
 
-  dprintf("Found a proper allocator to shim at %p Gonna fill it with %p\n",
-          shimmed, &shim);
-
+  dprintf("Found a proper allocator to shim at %p Gonna fill it with %p\n", shimmed, &shim);
   memset(&shim, 0x00, sizeof(shim));
 
 /* optional ones first so we can keep adding commas behind */
