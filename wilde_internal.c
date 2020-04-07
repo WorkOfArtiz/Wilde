@@ -20,11 +20,9 @@
 #include "vma.h"
 #include "shimming.h"
 #include "util.h"
+#include "x86.h"
 
-#define KB ((1UL) << 10)
-#define MB ((1UL) << 20)
-#define GB ((1UL) << 30)
-#define TB ((1UL) << 40)
+
 
 #define VMAP_START ((4 * TB))
 #define VMAP_SIZE  ((4 * TB))
@@ -223,7 +221,13 @@ static void wilde_init(void)
   uk_pr_info("Initialising lib wilde\n");
 
 #ifdef CONFIG_LIBWILDE_ASLR
+  uk_pr_info("Seeding the ASLR with compile time included /dev/urandom data\n");
   uk_swrand_init_r(&wilde_rand, WILDE_SEED);
+#endif
+
+#ifdef CONFIG_LIBWILDE_NX
+  uk_pr_info("Enabling the NX-bit\n");
+  write_msr(EFER_REGISTER, read_msr(EFER_REGISTER) | EFER_NXE);
 #endif
 
   /* set up alias hash table */

@@ -1,6 +1,7 @@
 #define COLOR COLOR_BLUE
 #include "util.h"
 #include "pagetables.h"
+#include "x86.h"
 #include "shimming.h"
 #include <stdio.h>
 #include <stdbool.h>
@@ -229,48 +230,48 @@ void print_binary_number(uintptr_t x)
   // dprintf("%s", arr);
 }
 
-static uintptr_t pt_get_phys(uintptr_t vaddr, bool create)
-{
-  dprintf("get_phys %p [%ld, %ld, %ld, %ld]\n", (void *)vaddr, PT_P1_IDX(vaddr),
-          PT_P2_IDX(vaddr), PT_P3_IDX(vaddr), PT_P4_IDX(vaddr));
+// static uintptr_t pt_get_phys(uintptr_t vaddr, bool create)
+// {
+//   dprintf("get_phys %p [%ld, %ld, %ld, %ld]\n", (void *)vaddr, PT_P1_IDX(vaddr),
+//           PT_P2_IDX(vaddr), PT_P3_IDX(vaddr), PT_P4_IDX(vaddr));
 
-  p1_t *p1 = pt_get_p1_pte((p1_t *)rcr3(), vaddr, create);
-  dprintf("get_phys %p p1@%p\n", (void *)vaddr, p1);
+//   p1_t *p1 = pt_get_p1_pte((p1_t *)rcr3(), vaddr, create);
+//   dprintf("get_phys %p p1@%p\n", (void *)vaddr, p1);
 
-  p2_t *p2 = pt_get_p2_pte(pt_pte_to_pt(p1), vaddr, create);
-  dprintf("get_phys %p p2@%p\n", (void *)vaddr, p2);
+//   p2_t *p2 = pt_get_p2_pte(pt_pte_to_pt(p1), vaddr, create);
+//   dprintf("get_phys %p p2@%p\n", (void *)vaddr, p2);
 
-  if ((!p2 || !(*p2 | PT_P2_PRESENT)) && !create)
-    return 0;
+//   if ((!p2 || !(*p2 | PT_P2_PRESENT)) && !create)
+//     return 0;
 
-  // edge case 1, p2 can be a 1Gb page
-  if (p2 && (*p2 & PT_P2_1GB) && (*p2 & PT_P2_PRESENT)) {
-    dprintf("get_phys %p 1 gb, phys = %p\n", (void *)vaddr,
-            (void *)((*p2 & PT_P2_MASK_ADDR) + (vaddr & MASK_1GB)));
-    return (*p2 & PT_P2_MASK_ADDR) + (vaddr & MASK_1GB);
-  }
+//   // edge case 1, p2 can be a 1Gb page
+//   if (p2 && (*p2 & PT_P2_1GB) && (*p2 & PT_P2_PRESENT)) {
+//     dprintf("get_phys %p 1 gb, phys = %p\n", (void *)vaddr,
+//             (void *)((*p2 & PT_P2_MASK_ADDR) + (vaddr & MASK_1GB)));
+//     return (*p2 & PT_P2_MASK_ADDR) + (vaddr & MASK_1GB);
+//   }
 
-  p3_t *p3 = pt_get_p3_pte(pt_pte_to_pt(p2), vaddr, create);
-  dprintf("get_phys %p p3@%p\n", (void *)vaddr, p3);
+//   p3_t *p3 = pt_get_p3_pte(pt_pte_to_pt(p2), vaddr, create);
+//   dprintf("get_phys %p p3@%p\n", (void *)vaddr, p3);
 
-  // edge case 2, p3 can be a 2Mb page
-  if (p3 && *p3 & PT_P3_2MB && *p3 & PT_P3_PRESENT) {
-    dprintf("get_phys %p 2 mb, phys = %p\n", (void *)vaddr,
-            (void *)((*p3 & PT_P3_MASK_ADDR) + (vaddr & MASK_2MB)));
-    return (*p3 & PT_P3_MASK_ADDR) + (vaddr & MASK_2MB);
-  }
+//   // edge case 2, p3 can be a 2Mb page
+//   if (p3 && *p3 & PT_P3_2MB && *p3 & PT_P3_PRESENT) {
+//     dprintf("get_phys %p 2 mb, phys = %p\n", (void *)vaddr,
+//             (void *)((*p3 & PT_P3_MASK_ADDR) + (vaddr & MASK_2MB)));
+//     return (*p3 & PT_P3_MASK_ADDR) + (vaddr & MASK_2MB);
+//   }
 
-  p4_t *p4 = pt_get_p4_pte(pt_pte_to_pt(p3), vaddr, create);
-  dprintf("get_phys %p p4@%p\n", (void *)vaddr, p4);
+//   p4_t *p4 = pt_get_p4_pte(pt_pte_to_pt(p3), vaddr, create);
+//   dprintf("get_phys %p p4@%p\n", (void *)vaddr, p4);
 
-  // if it's not mapped in
-  if (!p4 || !(*p4 & PT_P4_PRESENT))
-    return 0;
+//   // if it's not mapped in
+//   if (!p4 || !(*p4 & PT_P4_PRESENT))
+//     return 0;
 
-  dprintf("get_phys %p 4 4b, phys = %p\n", (void *)vaddr,
-          (void *)(*p4 & PT_P4_MASK_ADDR));
-  return *p4 & PT_P4_MASK_ADDR;
-}
+//   dprintf("get_phys %p 4 4b, phys = %p\n", (void *)vaddr,
+//           (void *)(*p4 & PT_P4_MASK_ADDR));
+//   return *p4 & PT_P4_MASK_ADDR;
+// }
 
 static void print_p4(p4_t *p4_p, uintptr_t vaddr)
 {
@@ -418,7 +419,11 @@ void remap_range(void *from, void *to, size_t size)
     }
 
     /* write the new entry in p4 table, pointing to previous memory */
+#ifdef CONFIG_LIBWILDE_NX
+    p4[p4i] = (p4_t)(from + offset) | PT_P4_PRESENT | PT_P4_WRITE | PT_P4_NX;
+#else
     p4[p4i] = (p4_t)(from + offset) | PT_P4_PRESENT | PT_P4_WRITE;
+#endif
 
     /* avoid creation of 1 too many page table pages */
     if (offset + __PAGE_SIZE >= size)

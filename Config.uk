@@ -65,6 +65,13 @@ config LIBWILDE_ASLR
 				Note that to make this sufficiently fast, we had to opt for randomisation
 				within the first viable VMA, which gives limited but fast ASLR
 
+config LIBWILDE_NX
+			bool "Enable hardware enforced NX-bit"
+			default n
+			help
+				Enables the use of the NX bit to block heap memory from being executed at
+				all, essentially preventing shellcode insertions (unless the physical address is known)
+
 config LIBWILDE_INIT_MEMORY
 			bool "Initialise the memory for malloc/memalign/posix_memalign"
 			default y

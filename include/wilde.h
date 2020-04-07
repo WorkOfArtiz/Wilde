@@ -17,10 +17,6 @@
   #warning "Wilde is only passing through calls"
 #endif
 
-#ifndef CONFIG_LIBWILDE_ZERO_MEMORY
-    #warning "Risk some UB over the clock cycles necessary for just zeroing it all?"
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif

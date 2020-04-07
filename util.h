@@ -39,6 +39,9 @@
     (typeof(a))(ROUNDDOWN((uintptr_t)(a) + __n - 1, __n));                     \
   })
 
+/* 2 ^ x macro, handy for bits */
+#define POW2(x) (1ULL << x)
+
 /* bit hacks for power of 2 */
 #define IS_POWER_2(a)                                                          \
   ({                                                                           \
@@ -52,6 +55,23 @@
     uintptr_t __a = (uintptr_t)(a); /* only eval a once */                     \
     __a ? 63 - __builtin_clzl(__a) : -1;                                       \
   })
+
+/* easy notation for data sizes */
+#define KB POW2(10)
+#define MB POW2(20)
+#define GB POW2(30)
+#define TB POW2(40)
+
+/* exact data types short notation */
+typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+typedef int8_t i8;
+typedef int16_t i16;
+typedef int32_t i32;
+typedef int64_t i64;
+
 
 #ifdef CONFIG_LIBWILDE_DEBUG
 #define dprintf lprintf

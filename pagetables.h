@@ -3,34 +3,15 @@
 
 #include <stdint.h>
 #include <uk/alloc.h>
+#include "util.h"
 
 #ifndef __x86_64__
 #error "only x64 supported"
 #endif
 
-static __inline void lcr3(uintptr_t val)
-{
-  __asm __volatile("movq %0,%%cr3" : : "r"(val));
-}
-
-static __inline uintptr_t rcr3(void)
-{
-  uintptr_t val;
-  __asm __volatile("movq %%cr3,%0" : "=r"(val));
-  return val;
-}
-
-static __inline void tlbflush(void)
-{
-  uintptr_t cr3;
-  __asm __volatile("movq %%cr3,%0" : "=r"(cr3));
-  __asm __volatile("movq %0,%%cr3" : : "r"(cr3));
-}
-
 #define CR3_MASK_PCD (1 << 4)
 #define CR3_MASK_WT (1 << 3)
 
-#define POW2(x) (1 << x)
 
 #define PT_ENTRIES 512
 #define PT_MASK_ADDR 0xfffffffffffff000ULL
@@ -76,6 +57,7 @@ static __inline void tlbflush(void)
 #define PT_P4_EXEC POW2(2)
 #define PT_P4_ACCESSED POW2(8)
 #define PT_P4_DIRTY POW2(9)
+#define PT_P4_NX POW2(63)
 #define PT_P4_MASK_ADDR 0xfffffffffffff000ULL
 
 #define MASK_1GB 0x3fffffff
