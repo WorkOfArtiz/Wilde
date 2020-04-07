@@ -10,8 +10,6 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#ifndef TEST
-
 /* uk_coutk */
 #include <uk/plat/console.h>
 
@@ -23,9 +21,6 @@
 
 /* configurations */
 #include <uk/config.h>
-
-#endif
-
 
 #define UNUSED(X) (void)(X)
 
@@ -57,10 +52,6 @@
     uintptr_t __a = (uintptr_t)(a); /* only eval a once */                     \
     __a ? 63 - __builtin_clzl(__a) : -1;                                       \
   })
-
-// #ifndef COLOR
-// #define COLOR "31"
-// #endif
 
 #ifdef CONFIG_LIBWILDE_DEBUG
 #define dprintf lprintf
@@ -121,14 +112,4 @@
     }                                                                          \
     ret;                                                                       \
   })
-/*
-#define hprintf(...)                                                           \
-  ({                                                                           \
-    int ret;                                                                   \
-    char $$$buf[1024];                                                         \
-    int len = snprintf($$$buf, 1023, __VA_ARGS__);                             \
-    ret = ukplat_coutk($$$buf, len);                                           \
-    ret;                                                                       \
-  })
-*/
 #endif

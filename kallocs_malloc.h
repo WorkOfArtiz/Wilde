@@ -1,5 +1,5 @@
-#ifndef __WILDE_KALLOCS__
-#define __WILDE_KALLOCS__
+#ifndef __WILDE_KALLOCS_H__
+#define __WILDE_KALLOCS_H__
 #include "alias.h"
 #include "util.h"
 
@@ -69,4 +69,4 @@ void   *kallocs_memalign(size_t align, size_t size);
 void   *kallocs_realloc(void *ptr, size_t old_size, size_t size);
 void    kallocs_free(void *ptr, size_t size);
 
-#endif
+#endif // __WILDE_KALLOCS_H__
