@@ -33,6 +33,9 @@
 UK_LIST_HEAD(vmem_free);
 UK_LIST_HEAD(vmem_gc);
 
+/* define random generator */
+struct uk_swrand wilde_rand;
+
 static void print_sz(size_t size)
 {
   char *ext = "bytes";
@@ -74,83 +77,6 @@ void wilde_map_init(void)
   }
 }
 
-#if 0
-/*
- *Relies on
- *pagetable.S having:
- *
- *  .align 0x1000
- *  cpu_pdpt:
- *    .quad cpu_pd + PAGETABLE_RW
- *    .fill 0x1, 0x8, 0x0
- *    .quad cpu_pd + PAGETABLE_RW
- *    .fill 0x1fd, 0x8, 0x0
- */
-void *wilde_map_new(void *real_addr, size_t _, size_t __)
-{
-  UNUSED(_);
-  UNUSED(__);
-
-  return real_addr + (2 * GB);
-}
-
-void *wilde_map_get(void *mapped_addr)
-{
-  return mapped_addr - (2 * GB);
-}
-
-void *wilde_map_rm(void *mapped_addr)
-{
-  return wilde_map_get(mapped_addr);
-}
-#endif
-
-#if 0
-void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
-{
-  uintptr_t page_start = ROUNDDOWN(((uintptr_t)real_addr), __PAGE_SIZE);
-  uintptr_t page_end = ROUNDUP((uintptr_t)(real_addr + size), __PAGE_SIZE);
-  size_t map_size = page_end - page_start;
-
-  UK_ASSERT(real_addr);
-  UK_ASSERT(page_start < (1 * GB));
-  UK_ASSERT(size);
-  UK_ASSERT(alignment);
-
-  alias_register((uintptr_t) real_addr, (uintptr_t) real_addr + VMAP_START, size);
-  remap_range((void *)page_start, (void *)(page_start + VMAP_START), map_size);
-  return real_addr + VMAP_START;
-}
-
-void *wilde_map_rm(void *map_addr)
-{
-  uintptr_t a = (uintptr_t) map_addr;
-  UK_ASSERT(a >= (VMAP_START));
-  UK_ASSERT(a <  (VMAP_START + 1 * GB));
-
-  const struct alias *result = alias_search(a);
-  UK_ASSERT(result);
-  UK_ASSERT(result->origin == a - VMAP_START);
-
-  void *real_addr = (void *) result->origin;
-  uintptr_t page_start = ROUNDDOWN(result->alias, __PAGE_SIZE);
-  uintptr_t page_end = ROUNDUP((result->alias + result->size), __PAGE_SIZE);
-  alias_unregister((uintptr_t)map_addr);
-  unmap_range((void *)page_start, page_end - page_start);
-  return real_addr;
-}
-
-void *wilde_map_get(void *map_addr)
-{
-  uintptr_t a = (uintptr_t) map_addr;
-
-  UK_ASSERT(a >= (VMAP_START));
-  UK_ASSERT(a < (VMAP_START + 1 * GB));
-  return map_addr - (VMAP_START);
-}
-#endif
-
-#if 1
 void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
 {
   dprintf("wilde_map_new(addr=%p, size=%zu, alignment=%zu)\n", real_addr, size, alignment);
@@ -185,8 +111,36 @@ void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
   {
     dprintf(" -> free vma {.addr=%p, .size=%zu}\n", (void *)iter->addr, iter->size);
 
+#ifdef CONFIG_LIBWILDE_SHAUN
+    /* optimisation, filter out unusable areas */
+    if (iter->size - __PAGE_SIZE == 0) {
+      uk_list_del_init(&iter->list);
+      vma_free(iter); // TODO garbage collect
+      continue;
+    }
+#endif
+
+#ifdef CONFIG_LIBWILDE_ASLR
+    /* randomisation implemented by calculating the offset into a specific vma */
+    uintptr_t first = ROUNDUP(iter->addr, alignment);
+    uintptr_t last  = ROUNDDOWN((iter->addr + iter->size) - reserved_size, alignment);
+
+    /* short circuit out the invalid options */
+    if (last < first)
+      continue;
+
+    uintptr_t slots = (last - first) / alignment;
+
+    /* pick a random number in [0, slots] */
+    uintptr_t slot = uk_swrand_randr_r(&wilde_rand) % (slots + 1);
+    uintptr_t aligned = first + slot * alignment;
+    dprintf("Going to use ASLR allocating in [%#lx, %#lx, %lu] number of choices: %lu => %lx\n", iter->addr, iter->addr+iter->size, alignment, slots, aligned);
+#else
     uintptr_t aligned = ROUNDUP(iter->addr, alignment);
+#endif
     ssize_t remaining = iter->size - (aligned - iter->addr);
+
+
 
     /* can create an aligned allocation */
     if (remaining >= (ssize_t) reserved_size) {
@@ -262,12 +216,15 @@ void *wilde_map_get(void *map_addr)
   UK_ASSERT(a);
   return (void *)a->origin;
 }
-#endif
 
 
 static void wilde_init(void)
 {
   uk_pr_info("Initialising lib wilde\n");
+
+#ifdef CONFIG_LIBWILDE_ASLR
+  uk_swrand_init_r(&wilde_rand, WILDE_SEED);
+#endif
 
   /* set up alias hash table */
   alias_init();

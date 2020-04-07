@@ -22,5 +22,5 @@ Platform: KVM
 - [Optional] Arbitrary memory initialisation
 - [Optional] Metadata protection
 - [Optional] Dynamic allocation logging and resolving
-
+- [Optional] ASLR, only for allocated objects like the stack, not code pages and double mapping still exists.
 

@@ -6,6 +6,12 @@
 extern struct uk_list_head vmem_free; /* vmem chunks ready for use */
 extern struct uk_list_head vmem_gc;   /* vmem chunks ready for gc */
 
+#ifdef CONFIG_LIBWILDE_ASLR
+#include <uk/swrand.h>
+
+extern struct uk_swrand    wilde_rand; /* random number generator for wilde */
+#endif
+
 /*
  * wilde internals
  *   - wilde_map_init will create and initialise the vmas, requires memory
