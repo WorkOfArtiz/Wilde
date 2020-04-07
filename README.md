@@ -3,6 +3,11 @@
 This is a secure allocator for the unikraft kernel still in active development
 at the time of writing.
 
+## Kernel
+
+Modifications were made to the kernel, these will not be put in this repository and
+will be uploaded later.
+
 ## Supported:
 
 ```
@@ -23,4 +28,4 @@ Platform: KVM
 - [Optional] Metadata protection
 - [Optional] Dynamic allocation logging and resolving
 - [Optional] ASLR, only for allocated objects like the stack, not code pages and double mapping still exists.
-
+- [Optional] NX-bit
