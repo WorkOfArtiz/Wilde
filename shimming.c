@@ -53,11 +53,8 @@
   #define alloc_printf(...) do {} while (0)
 #endif
 
-#ifdef CONFIG_LIBWILDE_ZERO_MEMORY
-  /* uninitialized memory will be filled with this value */
-  #define CONFIG_MEMVAL 0x5a
-
-  #define CLEAR(Mem, Size) memset((Mem), CONFIG_MEMVAL, (Size));
+#ifdef CONFIG_LIBWILDE_INIT_MEMORY
+  #define CLEAR(Mem, Size) memset((Mem), CONFIG_LIBWILDE_INIT_MEMORY_VALUE, (Size));
 #else
   #define CLEAR(Mem, Size) do {} while (0)
 #endif

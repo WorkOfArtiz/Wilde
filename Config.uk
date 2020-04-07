@@ -56,12 +56,19 @@ config LIBWILDE_COLOR
 
 endmenu
 
-config LIBWILDE_ZERO_MEMORY
-			bool "whether allocating calls try to zero their contents"
+config LIBWILDE_INIT_MEMORY
+			bool "Initialise the memory for malloc/memalign/posix_memalign"
 			default y
 			help
-				malloc, posix_memalign etc are not guaranteed to return nulled memory.
-				Ensure it's that way.
+				malloc, posix_memalign etc are not guaranteed to deliver
+				initialised memory, this flag enables initialisation. The value
+				of this can be set.
+
+config LIBWILDE_INIT_MEMORY_VALUE
+			hex "What value the memory will be initialised to, note this is a byte"
+			default 0x0
+			help
+				for the above option the value the initialised memory will be set to
 
 config LIBWILDE_LOCKING
 			bool "Whether locks are compiled in, requires pthreads implementation"
