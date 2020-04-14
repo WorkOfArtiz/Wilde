@@ -2,6 +2,7 @@
 #define __WILDE_PGTABLES_H__
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <uk/alloc.h>
 #include "util.h"
 
@@ -60,12 +61,27 @@
 #define PT_P4_NX POW2(63)
 #define PT_P4_MASK_ADDR 0xfffffffffffff000ULL
 
+#ifdef CONFIG_LIBWILDE_NX
+#define PT_P4_BITS_SET ((PT_P4_PRESENT | PT_P4_WRITE | PT_P4_NX))
+#else
+#define PT_P4_BITS_SET ((PT_P4_PRESENT | PT_P4_WRITE))
+#endif
+
+#define ADDR_FROM_IDX(P1I, P2I, P3I, P4I)\
+    (\
+        ((P1I) << PT_P1_VA_SHIFT) + \
+        ((P2I) << PT_P2_VA_SHIFT) + \
+        ((P3I) << PT_P3_VA_SHIFT) + \
+        ((P4I) << PT_P4_VA_SHIFT) \
+    )
+
+
 #define MASK_1GB 0x3fffffff
 #define MASK_2MB 0x1fffff
 #define MASK_4KB 0xfff
 
 /* debug dump */
-void print_pgtables(void);
+void print_pgtables(bool skip_first_gb);
 
 /* range remapping and unmapping */
 void remap_range(void *from, void *to, size_t size);

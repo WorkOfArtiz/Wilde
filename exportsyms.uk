@@ -1,2 +1,4 @@
 wilde_init
 print_pgtables
+remap_range
+unmap_range

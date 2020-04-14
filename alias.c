@@ -69,7 +69,7 @@ void alias_register(uintptr_t addr, uintptr_t alias, size_t size)
 {
   dprintf("void alias_register(%#lx, %#lx, %ld)\n", addr, alias, size);
   uint16_t key = hash_address(alias) % LOOKUP_SIZE;
-  
+
   struct alias *iter;
   uk_list_for_each_entry(iter, &lookup[key], list) {
     dprintf("{.alias=%p, .mem=%p, .size=%zu}\n", (void *) iter->alias, (void *) iter->origin, iter->size);
@@ -116,10 +116,8 @@ bool alias_unregister(uintptr_t alias)
 /* returns NULL on not found or the alias struct if found */
 const struct alias *alias_search(uintptr_t alias)
 {
-  // dprintf("alias_search(%p)\n", (void *) alias);
-  // alias_dump();
+  dprintf("alias_search(%p)\n", (void *) alias);
   uint16_t key = hash_address(alias) % LOOKUP_SIZE;
-  // dprintf("[alias search] key = %04X\n", key);
 
   struct alias *iter, *s = NULL;
   uk_list_for_each_entry(iter, &lookup[key], list)

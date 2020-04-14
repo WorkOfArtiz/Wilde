@@ -25,14 +25,16 @@
 
 
 #define VMAP_START ((4 * TB))
-#define VMAP_SIZE  ((4 * TB))
+#define VMAP_SIZE  ((2 * GB))
 
 /* define lists */
 UK_LIST_HEAD(vmem_free);
 UK_LIST_HEAD(vmem_gc);
 
+#ifdef CONFIG_LIBWILDE_ASLR
 /* define random generator */
 struct uk_swrand wilde_rand;
+#endif
 
 static void print_sz(size_t size)
 {
@@ -53,7 +55,7 @@ static void print_sz(size_t size)
     ext = "Gb";
   }
 
-  uk_pr_crit("%zu%s", size, ext);
+  uk_pr_info("%zu%s", size, ext);
 }
 
 void wilde_map_init(void)
@@ -109,15 +111,6 @@ void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
   {
     dprintf(" -> free vma {.addr=%p, .size=%zu}\n", (void *)iter->addr, iter->size);
 
-#ifdef CONFIG_LIBWILDE_SHAUN
-    /* optimisation, filter out unusable areas */
-    if (iter->size - __PAGE_SIZE == 0) {
-      uk_list_del_init(&iter->list);
-      vma_free(iter); // TODO garbage collect
-      continue;
-    }
-#endif
-
 #ifdef CONFIG_LIBWILDE_ASLR
     /* randomisation implemented by calculating the offset into a specific vma */
     uintptr_t first = ROUNDUP(iter->addr, alignment);
@@ -132,7 +125,8 @@ void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
     /* pick a random number in [0, slots] */
     uintptr_t slot = uk_swrand_randr_r(&wilde_rand) % (slots + 1);
     uintptr_t aligned = first + slot * alignment;
-    dprintf("Going to use ASLR allocating in [%#lx, %#lx, %lu] number of choices: %lu => %lx\n", iter->addr, iter->addr+iter->size, alignment, slots, aligned);
+    dprintf("Going to use ASLR allocating space of %ld in [%#lx, %#lx, %lu] number of choices: %lu => %lx\n",
+    reserved_size, iter->addr, iter->addr+iter->size, alignment, slots + 1, aligned);
 #else
     uintptr_t aligned = ROUNDUP(iter->addr, alignment);
 #endif
@@ -234,9 +228,9 @@ static void wilde_init(void)
   alias_init();
 
   /* print memory usage */
-  uk_pr_crit("vspace size: ");
+  uk_pr_info("vspace size: ");
   print_sz(VMAP_SIZE);
-  uk_pr_crit("\n");
+  uk_pr_info("\n");
 
   uk_pr_info("Now intialising the shim\n");
 

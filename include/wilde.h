@@ -3,6 +3,8 @@
 
 #include <uk/config.h>
 #include <uk/alloc.h>
+#include <stdint.h>
+#include <stdbool.h>
 
 /* if ARCH != X64 */
 #ifndef CONFIG_ARCH_X86_64
@@ -21,7 +23,12 @@
 extern "C" {
 #endif
 
-void print_pgtables(void);
+void print_pgtables(bool skip_first_gb);
+
+// TMP
+void remap_range(void *from, void *to, size_t size);
+void unmap_range(void *addr, size_t size);
+
 
 #ifdef __cplusplus
 }

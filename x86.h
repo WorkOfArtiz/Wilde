@@ -1,16 +1,20 @@
 #ifndef __WILDE_X86_H__
 #define __WILDE_X86_H__
 #include "util.h"
+#include <stdbool.h>
+
 
 static __inline void lcr3(uintptr_t val)
 {
   __asm __volatile("movq %0,%%cr3" : : "r"(val));
 }
 
-static __inline uintptr_t rcr3(void)
+static __inline uintptr_t rcr3(bool use_cache)
 {
-  uintptr_t val;
-  __asm __volatile("movq %%cr3,%0" : "=r"(val));
+  static uintptr_t val = 0;
+  if (!val || !use_cache)
+    __asm __volatile("movq %%cr3,%0" : "=r"(val));
+
   return val;
 }
 

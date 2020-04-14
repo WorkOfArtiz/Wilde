@@ -13,7 +13,9 @@ CXXINCLUDES-$(CONFIG_LIBWILDE) += -I$(LIBWILDE_BASE)/include
 ################################################################################
 # Library flags
 ################################################################################
-LIBWILDE_SEED=$$(shell hexdump -n 4 -e ' "%\#08X" ' /dev/urandom )
+#LIBWILDE_SEED=$$(shell hexdump -n 4 -e ' "%\#08X" ' /dev/urandom )
+LIBWILDE_SEED=0xdeaddead
+
 LIBWILDE_CFLAGS-y += -Wtype-limits -Wunused-parameter -DWILDE_SEED=$(LIBWILDE_SEED)
 LIBWILDE_CFLAGS-$(CONFIG_WILDE_DEBUG) += -DDEBUG
 

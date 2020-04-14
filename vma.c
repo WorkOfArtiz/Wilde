@@ -33,7 +33,7 @@ struct vma *vma_alloc()
 
 void vma_free(struct vma *v)
 {
-  dprintf("vma_free(%p)\n", v);
+  // dprintf("vma_free(%p)\n", v);
   *v = (struct vma){.size = 0xaa55aa55, .addr = 0x55aa11aa, .list = UK_LIST_HEAD_INIT(v->list)};
   uk_list_add(&v->list, &freelist);
 }
