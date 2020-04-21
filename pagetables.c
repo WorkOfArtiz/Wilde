@@ -5,6 +5,7 @@
 #include "shimming.h"
 #include <stdio.h>
 #include <stdbool.h>
+#include <uk/plat/console.h>
 
 /*******************************************************************************
  * We're dealing with a 4 level page table here, buckaroos :D
@@ -91,7 +92,7 @@ typedef uintptr_t p4_t;
 static inline uintptr_t pt_create()
 {
   // dprintf("Allocating page\n");
-  uintptr_t *page = shimmed->palloc(shimmed, 1);
+  uintptr_t *page = shimmed->palloc(shimmed, 0);
   if (!page)
     UK_CRASH("Couldn't allocate a page table");
 
@@ -295,10 +296,18 @@ void print_pgtables(bool skip_first_gb)
   print_p1(p1_p, skip_first_gb);
 }
 
-static uintptr_t *pt_next(uintptr_t *ptr, size_t index, uintptr_t flags, bool create)
+static inline volatile uintptr_t *pt_next(volatile uintptr_t *ptr, size_t index, uintptr_t flags, bool create)
 {
+  UK_ASSERT(index < PT_P1_ENTRIES);
+  UK_ASSERT((uintptr_t) ptr < (1 * GB));
+
+  if (!ptr)
+    return NULL;
+
   if ((ptr[index] & flags) == flags)
     return (uintptr_t *)(ptr[index] & PT_MASK_ADDR);
+
+  UK_ASSERT((ptr[index] & PT_P1_PRESENT) == 0);
 
   if (!create)
     return NULL;
@@ -314,20 +323,23 @@ void remap_range(void *from, void *to, size_t size)
           // to + size - 1);
 
   /* I'm lazy, assume from is phys */
-  UK_ASSERT((uintptr_t)from < (1UL << 30));
+  UK_ASSERT((uintptr_t)from < (1 * GB));
 
   size_t p1i = PT_P1_IDX((uintptr_t)to);
   size_t p2i = PT_P2_IDX((uintptr_t)to);
   size_t p3i = PT_P3_IDX((uintptr_t)to);
   size_t p4i = PT_P4_IDX((uintptr_t)to);
 
-  // dprintf("start: [%zu, %zu, %zu, %zu]\n", p1i, p2i, p3i, p4i);
+  UK_ASSERT(p1i < PT_P1_ENTRIES);
+  UK_ASSERT(p2i < PT_P1_ENTRIES);
+  UK_ASSERT(p3i < PT_P1_ENTRIES);
+  UK_ASSERT(p4i < PT_P1_ENTRIES);
 
   /* customised optimised page walking, auto create */
-  p1_t *p1 = (p1_t *)rcr3(true); /* read the cr3 register to get a base */
-  p2_t *p2 = pt_next(p1, p1i, PT_P1_PRESENT | PT_P1_WRITE, true);
-  p3_t *p3 = pt_next(p2, p2i, PT_P2_PRESENT | PT_P2_WRITE, true);
-  p4_t *p4 = pt_next(p3, p3i, PT_P3_PRESENT | PT_P3_WRITE, true);
+  volatile p1_t *p1 = (p1_t *)rcr3(true); /* read the cr3 register to get a base */
+  volatile p2_t *p2 = pt_next(p1, p1i, PT_P1_PRESENT | PT_P1_WRITE, true);
+  volatile p3_t *p3 = pt_next(p2, p2i, PT_P2_PRESENT | PT_P2_WRITE, true);
+  volatile p4_t *p4 = pt_next(p3, p3i, PT_P3_PRESENT | PT_P3_WRITE, true);
   // dprintf("p4: %p [p4[vaddr]=%zu]\n", p4, p4[p4i]);
 
   dprintf("mapping in %p = [%zu, %zu, %zu, %zu] <- %p\n",
@@ -337,13 +349,26 @@ void remap_range(void *from, void *to, size_t size)
     // dprintf("mapping in %p = [%zu, %zu, %zu, %zu] <- %p\n",
     //   to + offset, p1i, p2i, p3i, p4i, from + offset
     // );
-    if ((p4[p4i] & PT_P4_PRESENT) == 1)
+
+
+    UK_ASSERT(p1i < 512);
+    UK_ASSERT(p2i < 512);
+    UK_ASSERT(p3i < 512);
+    UK_ASSERT(p4i < 512);
+
+    if (p4[p4i] & PT_P4_PRESENT)
       UK_CRASH("WILDE CRIT: Tried to remap %p to %p but it already pointed to phys %llx\n",
         from + offset, to + offset, p4[p4i] & PT_MASK_ADDR
       );
 
+    // UK_ASSERT(!p4[p4i]);
+
+
     /* write the new entry in p4 table, pointing to previous memory */
     p4[p4i] = (p4_t)(from + offset) | PT_P4_BITS_SET;
+
+    /* flush tlb cache for entry */
+    // tlbflush_phys(from + offset);
 
     /* avoid creation of 1 too many page table pages */
     if (offset + __PAGE_SIZE >= size)
@@ -390,26 +415,34 @@ void remap_range(void *from, void *to, size_t size)
 /*
  * tries to remove/free pt
  */
-static bool pt_try_remove(uintptr_t *pgdir_entry, uintptr_t *pgtable)
+static inline bool pt_try_remove(volatile uintptr_t *pgdir_entry, volatile uintptr_t *pgtable)
 {
   UK_ASSERT(pgdir_entry);
   UK_ASSERT(pgtable);
 
   /* verify that we can remove pgtable */
-  for (int i = 0; i < PT_P1_ENTRIES; i++)
+  for (int i = 0; i < PT_P1_ENTRIES; i++) {
     if (pgtable[i] & PT_P1_PRESENT)
       return false;
 
-  UK_ASSERT(*pgdir_entry & PT_P2_PRESENT);
-  // if ((*pgdir_entry & PT_P2_PRESENT) == 0)
-  //   return false;
+    UK_ASSERT(pgtable[i] == 0);
+  }
+
+  if ((*pgdir_entry & PT_P2_PRESENT) == 0)
+    return false;
+
+  // uk_pr_crit("pgtable: %p\n", pgtable);
+  // uk_pr_crit("present: %lx\n", PT_P1_PRESENT);
+  // uk_pr_crit("pte: %lx\n", *pgdir_entry);
+  // uk_pr_crit("pte & access bits: %lx\n", *pgdir_entry & 0b111111111111ULL);
+  // UK_ASSERT((*pgdir_entry & (PT_MASK_ADDR | PT_P1_PRESENT)) == ((uintptr_t) pgtable | PT_P1_PRESENT));
+  uintptr_t paddr = (*pgdir_entry) & PT_MASK_ADDR;
 
   /* we can remove it */
-  *pgdir_entry = ~PT_P1_PRESENT;
-  shimmed->pfree(shimmed, pgtable, 1);
+  *pgdir_entry = 0;
+  shimmed->pfree(shimmed, pgtable, 0);
   return true;
 }
-
 
 void unmap_range(void *addr, size_t size)
 {
@@ -426,38 +459,15 @@ void unmap_range(void *addr, size_t size)
   size_t p4i = PT_P4_IDX((uintptr_t) addr);
 
   /* calculate the start of every page table - expensive page table lookup */
-  p1_t *p1 = (p1_t *)rcr3(true);
-  p2_t *p2 = pt_next(p1, p1i, PT_P1_PRESENT, false);
-  p3_t *p3 = pt_next(p2, p2i, PT_P2_PRESENT, false);
-  p4_t *p4 = pt_next(p3, p3i, PT_P3_PRESENT, false);
+  volatile p1_t *p1 = (p1_t *)rcr3(true);
+  volatile p2_t *p2 = pt_next(p1, p1i, PT_P1_PRESENT, false);
+  volatile p3_t *p3 = pt_next(p2, p2i, PT_P2_PRESENT, false);
+  volatile p4_t *p4 = pt_next(p3, p3i, PT_P3_PRESENT, false);
 
   /* assert we can reach p2, p3, p4 */
   UK_ASSERT(p2);
   UK_ASSERT(p3);
   UK_ASSERT(p4);
-
-  // /*****************************************************************
-  //  * Scan the p3 and p4 tables for empty mappings
-  //  ****************************************************************/
-
-  // /* create booleans for whether varying page tables need cleaning */
-  // bool p3_empty = true;
-  // bool p4_empty = true;
-
-  // /* check if p3 contains anything *before* our mapping */
-  // for (size_t p3j = 0; p3j < p3i; p3j++) {
-  //   if (p3[p3j] & PT_P3_PRESENT) {
-  //     p3_empty = false;
-  //     break;
-  //   }
-  // }
-  // /* check if p4 contains anything *before* our mapping */
-  // for (size_t p4j = 0; p4j < p4i; p4j++) {
-  //   if (p4[p4j] & PT_P4_PRESENT) {
-  //     p4_empty = false;
-  //     break;
-  //   }
-  // }
 
   /******************************************************************
    * Main loop over all the addresses to unmap
@@ -468,8 +478,15 @@ void unmap_range(void *addr, size_t size)
     if ((p4[p4i] & PT_P4_PRESENT) == 0)
       UK_CRASH("Could not unmap %lx, it's not mapped in\n", vaddr);
 
+    UK_ASSERT(p1i < 512);
+    UK_ASSERT(p2i < 512);
+    UK_ASSERT(p3i < 512);
+    UK_ASSERT(p4i < 512);
+
+    uintptr_t paddr = p4[p4i] & PT_MASK_ADDR;
+
     /* unmap the page */
-    p4[p4i] = 0; // !PT_P4_PRESENT;
+    p4[p4i] = 0;//~PT_P4_PRESENT;
 
     /*
      * Now we need to go to the next page mapping, doing so is slightly
@@ -492,50 +509,24 @@ void unmap_range(void *addr, size_t size)
 
     /* if we need to go to the next p4 table */
     if (p4i == 0) {
-      if (pt_try_remove(&p3[p3i], p4))
-        uk_pr_crit("p4 mapping %p-%p no longer has any mappings, removed\n",
+      if (pt_try_remove(&p3[p3i], p4)) {
+        dprintf("p4 mapping %p-%p no longer has any mappings, removed\n",
           (void *)(ADDR_FROM_IDX(p1i, p2i, p3i, 0)),
           (void *)(ADDR_FROM_IDX(p1i, p2i, p3i, PT_P4_ENTRIES))
         );
+      }
 
-
-
-      // /* if p4 is now empty, clear the p3 present bit and free the page */
-      // if (p4_empty) {
-      //   // for (int i = 0; i < PT_P4_ENTRIES; i++)
-      //   //   UK_ASSERT((p4[i] & PT_P4_PRESENT) == 0);
-      //   uintptr_t vaddr = ADDR_FROM_IDX(p1i, p2i, p3i, p4i);
-
-      //   // uk_pr_crit("p4 mapping %p-%p no longer has any mappings, rm\n",
-      //   //   (void *)(vaddr),
-      //   //   (void *)(vaddr + PT_P4_ENTRIES * __PAGE_SIZE)
-      //   // );
-
-      //   dprintf(" -> Taking opportunity to remove p4 %p\n", p4);
-      //   // uk_pr_crit("entry p3[p3i] = %p\n", &p3[p3i]);
-      //   p3[p3i] = ~PT_P3_PRESENT;
-      //   shimmed->pfree(shimmed, p4, 1);
-      // }
-      // p4_empty = true;                  /* next p4 is empty till proven otherwise */
       p3i = (p3i + 1) % PT_P3_ENTRIES;  /* update p3i index */
 
       /* if we need to go to the next p3 table */
       if (p3i == 0) {
-        if (pt_try_remove(&p2[p2i], p3))
-          uk_pr_crit("p3 mapping %p-%p no longer has any mappings, removed\n",
-            (void *)(ADDR_FROM_IDX(p1i, p2i, 0, 0)),
-            (void *)(ADDR_FROM_IDX(p1i, p2i, PT_P3_ENTRIES, 0))
-          );
+        // if (pt_try_remove(&p2[p2i], p3)) {
+        //   dprintf("p3 mapping %p-%p no longer has any mappings, removed\n",
+        //     (void *)(ADDR_FROM_IDX(p1i, p2i, 0, 0)),
+        //     (void *)(ADDR_FROM_IDX(p1i, p2i, PT_P3_ENTRIES, 0))
+        //   );
+        // }
 
-      //   if (p3_empty) {
-      //     for (int i = 0; i < 512; i++)
-      //       UK_ASSERT((p3[i] & PT_P3_PRESENT) == 0);
-
-      //     p2[p2i] = ~PT_P2_PRESENT;
-      //     dprintf("Taking opportunity to remove p3 %p\n", p3);
-      //     shimmed->pfree(shimmed, p3, 1);
-      //   }
-      //   p3_empty = true;                  /* next p4 is empty till proven otherwise */
         p2i = (p2i + 1) % PT_P2_ENTRIES;  /* update p2i index */
 
         /* if we need to go to the next p2 table */
@@ -544,107 +535,19 @@ void unmap_range(void *addr, size_t size)
           p2 = pt_next(p1, p1i, PT_P1_PRESENT, false);
         }
 
-        // /* if this was the last iteration, p2 might be NULL, stop */
-        // if (offset + __PAGE_SIZE >= size)
-        //   break;
-
         p3 = pt_next(p2, p2i, PT_P2_PRESENT, false);
       }
 
-      // /* if this was the last iteration, p3 might be NULL, stop */
-      // if (offset + __PAGE_SIZE >= size)
-      //   break;
-
       p4 = pt_next(p3, p3i, PT_P3_PRESENT, false);
     }
+
+    /*
+     * we need to flush the physical address after unmapping it to ensure
+     * no trace get's left behind in the TLB.
+     *
+     * This is put at the end so that if we remove page tables, those changes will be
+     * included in the INVLPG instruction.
+     */
+    tlbflush_phys(paddr);
   }
-
-  /******************************************************************
-   * Scan the bits after our mapped out bits to ensure that if the
-   * rest of p4 or p3 is empty we unmap it
-   *****************************************************************/
-  if (p3 && p4 && pt_try_remove(&p3[p3i], p4))
-    uk_pr_crit("p4 mapping %p-%p no longer has any mappings, removed\n",
-      (void *)(ADDR_FROM_IDX(p1i, p2i, p3i, 0)),
-      (void *)(ADDR_FROM_IDX(p1i, p2i, p3i, PT_P4_ENTRIES))
-    );
-
-
-  if (p3 && pt_try_remove(&p2[p2i], p3))
-    uk_pr_crit("p3 mapping %p-%p no longer has any mappings, removed\n",
-      (void *)(ADDR_FROM_IDX(p1i, p2i, 0, 0)),
-      (void *)(ADDR_FROM_IDX(p1i, p2i, PT_P3_ENTRIES, 0))
-    );
-
-  // p2 = pt_next(p1, p1i, PT_P1_PRESENT, false);
-  // p3 = pt_next(p2, p2i, PT_P2_PRESENT, false);
-  // p4 = pt_next(p3, p3i, PT_P3_PRESENT, false);
-
-
-
-
-  /* Check if there's still other entries in p4 or whether it can be freed */
-  // if (p4 && p4_empty) {
-  //   // uk_pr_crit("P4 && P4_EMPTY PATH, %p\n", p4);
-
-  //   for (size_t p4j = p4i; p4j < PT_P4_ENTRIES; p4j++) {
-  //     if (p4[p4j] & PT_P4_PRESENT) {
-  //       p4_empty = false;
-  //       break;
-  //     }
-  //   }
-  //   // uk_pr_crit("P4 && P4_EMPTY PATH - for complete\n");
-
-  //   if (p4_empty) {
-  //     // uk_pr_crit("P4 && P4_EMPTY PATH - empty verification\n");
-  //     for (int i = 0; i < PT_P4_ENTRIES; i++)
-  //       if (p4[i] & PT_P4_PRESENT)
-  //         uk_pr_crit("I FUCKED UP GOOD :(\n");
-
-  //     // uk_pr_crit("P4 && P4_EMPTY PATH - empty verified\n");
-
-  //     uk_pr_crit("p4 mapping %p-%p no longer has any mappings, rm\n",
-  //       (void *)(ADDR_FROM_IDX(p1i, p2i, p3i, 0)),
-  //       (void *)(ADDR_FROM_IDX(p1i, p2i, p3i, PT_P4_ENTRIES))
-  //     );
-
-  //     // uk_pr_crit("entry p3[p3i] = %p\n", &p3[p3i]);
-
-  //     dprintf("Taking opportunity to remove p4 %p from %p\n", p4, &p3[p3i]);
-  //     p3[p3i] = ~PT_P3_PRESENT;
-  //     // uk_pr_crit("removed\n");
-  //     shimmed->pfree(shimmed, p4, 1);
-  //   }
-
-  //   // uk_pr_crit("P4 && P4_EMPTY PATH COMPLETE\n");
-  // }
-
-  /* Check if there's still other entries in p3 or whether it can be freed */
-  // if (p3 && p3_empty) {
-  //   uk_pr_crit("P3 && P3_EMPTY PATH, p3: %p\n", p3);
-
-  //   for (size_t p3j = p3i; p3j < PT_P3_ENTRIES; p3j++) {
-  //     if (p3[p3j] & PT_P3_PRESENT) {
-  //       p3_empty = false;
-  //       break;
-  //     }
-  //   }
-
-  //   if (p3_empty) {
-  //     for (int i = 0; i < PT_P3_ENTRIES; i++)
-  //       UK_ASSERT((p3[i] & PT_P3_PRESENT) == 0);
-
-  //     // uk_pr_crit("p3 mapping %p-%p no longer has any mappings, rm\n",
-  //     //   (void *)(ADDR_FROM_IDX(p1i, p2i, p3i, 0)),
-  //     //   (void *)(ADDR_FROM_IDX(p1i, p2i, p3i+1, 0))
-  //     // );
-
-  //     dprintf(" -> Taking opportunity to remove p3 %p\n", p3);
-  //     p2[p2i] = ~PT_P2_PRESENT;
-  //     shimmed->pfree(shimmed, p3, 1);
-  //   }
-
-  //   // uk_pr_crit("P3 && P3_EMPTY COMPLETE\n");
-  // }
-  // uk_pr_crit("DONE\n");
 }
