@@ -110,78 +110,6 @@ static uintptr_t *pt_pte_to_pt(uintptr_t *pte)
   return (uintptr_t *)(*pte & PT_P1_MASK_ADDR);
 }
 
-static inline p2_t *pt_get_p1_pte(uintptr_t *p1, uintptr_t vaddr, bool create)
-{
-  if (!p1)
-    return NULL;
-
-  p1_t *entry = &p1[PT_P1_IDX(vaddr)];
-  if (*entry & PT_P1_PRESENT)
-    return entry;
-
-  if (create) {
-    dprintf("Creating new page table\n");
-    *entry = PT_P1_PRESENT | PT_P1_WRITE | pt_create();
-    return entry;
-  }
-
-  return NULL;
-}
-
-static inline p2_t *pt_get_p2_pte(uintptr_t *p2, uintptr_t vaddr, bool create)
-{
-  if (!p2)
-    return NULL;
-
-  p2_t *entry = &p2[PT_P2_IDX(vaddr)];
-  if (*entry & PT_P2_PRESENT)
-    return entry;
-
-  if (create) {
-    dprintf("Creating new page table\n");
-    *entry = PT_P2_PRESENT | PT_P2_WRITE | pt_create();
-    return entry;
-  }
-
-  return NULL;
-}
-
-static inline p3_t *pt_get_p3_pte(uintptr_t *p3, uintptr_t vaddr, bool create)
-{
-  if (!p3)
-    return NULL;
-
-  p3_t *entry = &p3[PT_P3_IDX(vaddr)];
-  if (*entry & PT_P3_PRESENT)
-    return entry;
-
-  if (create) {
-    dprintf("Creating new page table\n");
-    *entry = PT_P3_PRESENT | PT_P3_WRITE | pt_create();
-    return entry;
-  }
-
-  return NULL;
-}
-
-static inline p4_t *pt_get_p4_pte(uintptr_t *p4, uintptr_t vaddr, bool create)
-{
-  if (!p4)
-    return NULL;
-
-  p4_t *entry = &p4[PT_P4_IDX(vaddr)];
-  if (*entry & PT_P4_PRESENT)
-    return entry;
-
-  if (create) {
-    // dprintf("Creating new page table\n");
-    *entry = PT_P4_PRESENT | PT_P4_WRITE | pt_create();
-    return entry;
-  }
-
-  return NULL;
-}
-
 void print_binary_number(uintptr_t x)
 {
   hprintf("bin {");
@@ -296,7 +224,7 @@ void print_pgtables(bool skip_first_gb)
   print_p1(p1_p, skip_first_gb);
 }
 
-static inline volatile uintptr_t *pt_next(volatile uintptr_t *ptr, size_t index, uintptr_t flags, bool create)
+static inline uintptr_t *pt_next(uintptr_t *ptr, size_t index, uintptr_t flags, bool create)
 {
   UK_ASSERT(index < PT_P1_ENTRIES);
   UK_ASSERT((uintptr_t) ptr < (1 * GB));
@@ -336,10 +264,10 @@ void remap_range(void *from, void *to, size_t size)
   UK_ASSERT(p4i < PT_P1_ENTRIES);
 
   /* customised optimised page walking, auto create */
-  volatile p1_t *p1 = (p1_t *)rcr3(true); /* read the cr3 register to get a base */
-  volatile p2_t *p2 = pt_next(p1, p1i, PT_P1_PRESENT | PT_P1_WRITE, true);
-  volatile p3_t *p3 = pt_next(p2, p2i, PT_P2_PRESENT | PT_P2_WRITE, true);
-  volatile p4_t *p4 = pt_next(p3, p3i, PT_P3_PRESENT | PT_P3_WRITE, true);
+  p1_t *p1 = (p1_t *)rcr3(true); /* read the cr3 register to get a base */
+  p2_t *p2 = pt_next(p1, p1i, PT_P1_PRESENT | PT_P1_WRITE, true);
+  p3_t *p3 = pt_next(p2, p2i, PT_P2_PRESENT | PT_P2_WRITE, true);
+  p4_t *p4 = pt_next(p3, p3i, PT_P3_PRESENT | PT_P3_WRITE, true);
   // dprintf("p4: %p [p4[vaddr]=%zu]\n", p4, p4[p4i]);
 
   dprintf("mapping in %p = [%zu, %zu, %zu, %zu] <- %p\n",
@@ -415,7 +343,7 @@ void remap_range(void *from, void *to, size_t size)
 /*
  * tries to remove/free pt
  */
-static inline bool pt_try_remove(volatile uintptr_t *pgdir_entry, volatile uintptr_t *pgtable)
+static inline bool pt_try_remove(uintptr_t *pgdir_entry, uintptr_t *pgtable)
 {
   UK_ASSERT(pgdir_entry);
   UK_ASSERT(pgtable);
@@ -424,19 +352,10 @@ static inline bool pt_try_remove(volatile uintptr_t *pgdir_entry, volatile uintp
   for (int i = 0; i < PT_P1_ENTRIES; i++) {
     if (pgtable[i] & PT_P1_PRESENT)
       return false;
-
-    UK_ASSERT(pgtable[i] == 0);
   }
 
   if ((*pgdir_entry & PT_P2_PRESENT) == 0)
-    return false;
-
-  // uk_pr_crit("pgtable: %p\n", pgtable);
-  // uk_pr_crit("present: %lx\n", PT_P1_PRESENT);
-  // uk_pr_crit("pte: %lx\n", *pgdir_entry);
-  // uk_pr_crit("pte & access bits: %lx\n", *pgdir_entry & 0b111111111111ULL);
-  // UK_ASSERT((*pgdir_entry & (PT_MASK_ADDR | PT_P1_PRESENT)) == ((uintptr_t) pgtable | PT_P1_PRESENT));
-  uintptr_t paddr = (*pgdir_entry) & PT_MASK_ADDR;
+    UK_CRASH("Tried to remove an item from non-present page");
 
   /* we can remove it */
   *pgdir_entry = 0;
@@ -459,10 +378,10 @@ void unmap_range(void *addr, size_t size)
   size_t p4i = PT_P4_IDX((uintptr_t) addr);
 
   /* calculate the start of every page table - expensive page table lookup */
-  volatile p1_t *p1 = (p1_t *)rcr3(true);
-  volatile p2_t *p2 = pt_next(p1, p1i, PT_P1_PRESENT, false);
-  volatile p3_t *p3 = pt_next(p2, p2i, PT_P2_PRESENT, false);
-  volatile p4_t *p4 = pt_next(p3, p3i, PT_P3_PRESENT, false);
+  p1_t *p1 = (p1_t *)rcr3(true);
+  p2_t *p2 = pt_next(p1, p1i, PT_P1_PRESENT, false);
+  p3_t *p3 = pt_next(p2, p2i, PT_P2_PRESENT, false);
+  p4_t *p4 = pt_next(p3, p3i, PT_P3_PRESENT, false);
 
   /* assert we can reach p2, p3, p4 */
   UK_ASSERT(p2);
@@ -486,7 +405,7 @@ void unmap_range(void *addr, size_t size)
     uintptr_t paddr = p4[p4i] & PT_MASK_ADDR;
 
     /* unmap the page */
-    p4[p4i] = 0;//~PT_P4_PRESENT;
+    p4[p4i] = ~PT_P4_PRESENT;
 
     /*
      * Now we need to go to the next page mapping, doing so is slightly
@@ -520,12 +439,12 @@ void unmap_range(void *addr, size_t size)
 
       /* if we need to go to the next p3 table */
       if (p3i == 0) {
-        // if (pt_try_remove(&p2[p2i], p3)) {
-        //   dprintf("p3 mapping %p-%p no longer has any mappings, removed\n",
-        //     (void *)(ADDR_FROM_IDX(p1i, p2i, 0, 0)),
-        //     (void *)(ADDR_FROM_IDX(p1i, p2i, PT_P3_ENTRIES, 0))
-        //   );
-        // }
+        if (pt_try_remove(&p2[p2i], p3)) {
+          dprintf("p3 mapping %p-%p no longer has any mappings, removed\n",
+            (void *)(ADDR_FROM_IDX(p1i, p2i, 0, 0)),
+            (void *)(ADDR_FROM_IDX(p1i, p2i, PT_P3_ENTRIES, 0))
+          );
+        }
 
         p2i = (p2i + 1) % PT_P2_ENTRIES;  /* update p2i index */
 
