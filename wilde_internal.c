@@ -25,7 +25,7 @@
 
 
 #define VMAP_START ((4 * TB))
-#define VMAP_SIZE  ((2 * GB))
+#define VMAP_SIZE  ((3 * TB))
 
 /* define lists */
 UK_LIST_HEAD(vmem_free);
@@ -101,13 +101,15 @@ void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
     size_t reserved_size = map_size + __PAGE_SIZE;
   #endif
 
-  struct vma *iter;
+  struct vma *iter, *next;
+  // struct uk_list_head next;
 
   /* Assert we have any freelist */
   UK_ASSERT(!uk_list_empty(&vmem_free));
 
   // dprintf("Going to loop over all vmem_free entries:\n");
-  uk_list_for_each_entry(iter, &vmem_free, list)
+
+  uk_list_for_each_entry_safe(iter, next, &vmem_free, list)
   {
     dprintf(" -> free vma {.addr=%p, .size=%zu}\n", (void *)iter->addr, iter->size);
 
@@ -138,12 +140,27 @@ void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
     if (remaining >= (ssize_t) reserved_size) {
 
       /* Cut off bit before */
-      if (aligned != iter->addr)
+      if (aligned != iter->addr) {
+
+#ifdef CONFIG_LIBWILDE_SHAUN
+        struct vma *tmp = iter;
         iter = vma_split(iter, aligned);
+        if (tmp->size == __PAGE_SIZE)
+          uk_list_del(&tmp->list);
+#else
+        iter = vma_split(iter, aligned);
+#endif
+      }
 
       /* Cut off bit after */
-      if (remaining > (ssize_t) reserved_size)
-        vma_split(iter, aligned + reserved_size);
+      if (remaining > (ssize_t) reserved_size) {
+        struct vma *tmp = vma_split(iter, aligned + reserved_size);
+
+#ifdef CONFIG_LIBWILDE_SHAUN
+        if (tmp->size == __PAGE_SIZE)
+          uk_list_del(&tmp->list);
+#endif
+      }
 
       UK_ASSERT(aligned == iter->addr);
       UK_ASSERT(reserved_size == iter->size);
@@ -209,13 +226,12 @@ void *wilde_map_get(void *map_addr)
   return (void *)a->origin;
 }
 
-
 static void wilde_init(void)
 {
   uk_pr_info("Initialising lib wilde\n");
 
 #ifdef CONFIG_LIBWILDE_ASLR
-  uk_pr_info("Seeding the ASLR with compile time included /dev/urandom data\n");
+  uk_pr_crit("Seeding the ASLR with compile time included /dev/urandom data, %x\n", WILDE_SEED);
   uk_swrand_init_r(&wilde_rand, WILDE_SEED);
 #endif
 
@@ -223,6 +239,9 @@ static void wilde_init(void)
   uk_pr_info("Enabling the NX-bit\n");
   write_msr(EFER_REGISTER, read_msr(EFER_REGISTER) | EFER_NXE);
 #endif
+
+  /* since we will mess with TLBs, better ensure the global bit works */
+  wcr4(rcr4() | CR4_PGE);
 
   /* set up alias hash table */
   alias_init();
