@@ -35,12 +35,11 @@
 // macros {{{
 /* locking functionality for multithreading, coarse grained locking */
 #ifdef CONFIG_LIBWILDE_LOCKING
-  #error "not tested"
-  #include <pthread.h>
+  #include <uk/mutex.h>
 
-  static pthread_mutex_t global_mutex = PTHREAD_MUTEX_INITIALIZER;
-  #define alloc_lock() pthread_mutex_lock(&global_mutex)
-  #define alloc_unlock() pthread_mutex_unlock(&global_mutex);
+  static struct uk_mutex global_mutex = UK_MUTEX_INITIALIZER(global_mutex);
+  #define alloc_lock()   do { uk_mutex_lock(&global_mutex); } while (0)
+  #define alloc_unlock() do { uk_mutex_unlock(&global_mutex); } while (0)
 #else
   #define alloc_lock() do {} while (0)
   #define alloc_unlock() do {} while (0)
@@ -143,7 +142,7 @@ void *shim_calloc(struct uk_alloc *a, size_t nmemb, size_t size)
 #ifdef CONFIG_LIBWILDE_DISABLE_INJECTION
 
   /* version without wilde */
-  char *address = calloc(nmemb, size);
+  char *address = kcalloc(nmemb, size);
   if (address == NULL) {
     alloc_printf("calloc(nmemb=%zu, size=%zu) => NULL\n", nmemb, size);
     return NULL;
