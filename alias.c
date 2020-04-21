@@ -70,6 +70,7 @@ void alias_register(uintptr_t addr, uintptr_t alias, size_t size)
   dprintf("void alias_register(%#lx, %#lx, %ld)\n", addr, alias, size);
   uint16_t key = hash_address(alias) % LOOKUP_SIZE;
 
+#ifdef CONFIG_LIBWILDE_TEST
   struct alias *iter;
   uk_list_for_each_entry(iter, &lookup[key], list) {
     dprintf("{.alias=%p, .mem=%p, .size=%zu}\n", (void *) iter->alias, (void *) iter->origin, iter->size);
@@ -78,6 +79,7 @@ void alias_register(uintptr_t addr, uintptr_t alias, size_t size)
       UK_ASSERT(0);
     }
   }
+#endif
 
   if (uk_list_empty(&afreelist))
     alias_batch_alloc();
