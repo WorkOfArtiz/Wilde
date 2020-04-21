@@ -5,8 +5,7 @@ at the time of writing.
 
 ## Kernel
 
-Modifications were made to the kernel, these will not be put in this repository and
-will be uploaded later.
+Relevant kernel patch can be found [here](https://gist.github.com/WorkOfArtiz/63373fa42cc106490b0baddcf0562a70)
 
 ## Supported:
 
