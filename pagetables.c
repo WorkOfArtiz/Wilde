@@ -102,6 +102,30 @@ static inline uintptr_t pt_create()
   return (uintptr_t)page;
 }
 
+/*
+ * tries to remove/free pt
+ */
+static inline bool pt_try_remove(uintptr_t *pgdir_entry, uintptr_t *pgtable)
+{
+  UK_ASSERT(pgdir_entry);
+  UK_ASSERT(pgtable);
+
+  /* verify that we can remove pgtable */
+  for (int i = 0; i < PT_P1_ENTRIES; i++) {
+    if (pgtable[i] & PT_P1_PRESENT)
+      return false;
+  }
+
+  if ((*pgdir_entry & PT_P2_PRESENT) == 0)
+    UK_CRASH("Tried to remove an item from non-present page");
+
+  /* we can remove it */
+  *pgdir_entry = 0;
+  shimmed->pfree(shimmed, pgtable, 0);
+
+  return true;
+}
+
 static uintptr_t *pt_pte_to_pt(uintptr_t *pte)
 {
   if (!pte)
@@ -340,28 +364,6 @@ void remap_range(void *from, void *to, size_t size)
 #endif
 }
 
-/*
- * tries to remove/free pt
- */
-static inline bool pt_try_remove(uintptr_t *pgdir_entry, uintptr_t *pgtable)
-{
-  UK_ASSERT(pgdir_entry);
-  UK_ASSERT(pgtable);
-
-  /* verify that we can remove pgtable */
-  for (int i = 0; i < PT_P1_ENTRIES; i++) {
-    if (pgtable[i] & PT_P1_PRESENT)
-      return false;
-  }
-
-  if ((*pgdir_entry & PT_P2_PRESENT) == 0)
-    UK_CRASH("Tried to remove an item from non-present page");
-
-  /* we can remove it */
-  *pgdir_entry = 0;
-  shimmed->pfree(shimmed, pgtable, 0);
-  return true;
-}
 
 void unmap_range(void *addr, size_t size)
 {
@@ -388,6 +390,8 @@ void unmap_range(void *addr, size_t size)
   UK_ASSERT(p3);
   UK_ASSERT(p4);
 
+  uintptr_t paddr;
+
   /******************************************************************
    * Main loop over all the addresses to unmap
    *****************************************************************/
@@ -402,7 +406,7 @@ void unmap_range(void *addr, size_t size)
     UK_ASSERT(p3i < 512);
     UK_ASSERT(p4i < 512);
 
-    uintptr_t paddr = p4[p4i] & PT_MASK_ADDR;
+    paddr = p4[p4i] & PT_MASK_ADDR;
 
     /* unmap the page */
     p4[p4i] = ~PT_P4_PRESENT;
@@ -458,6 +462,10 @@ void unmap_range(void *addr, size_t size)
       }
 
       p4 = pt_next(p3, p3i, PT_P3_PRESENT, false);
+    }
+    /* if this is the last iteration */
+    else if (offset + __PAGE_SIZE >= size) {
+      pt_try_remove(&p3[p3i], p4);
     }
 
     /*

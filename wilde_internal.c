@@ -145,8 +145,10 @@ void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
 #ifdef CONFIG_LIBWILDE_SHAUN
         struct vma *tmp = iter;
         iter = vma_split(iter, aligned);
-        if (tmp->size == __PAGE_SIZE)
+        if (tmp->size == __PAGE_SIZE) {
           uk_list_del(&tmp->list);
+          vma_free(tmp);
+        }
 #else
         iter = vma_split(iter, aligned);
 #endif
@@ -157,8 +159,10 @@ void *wilde_map_new(void *real_addr, size_t size, size_t alignment)
         struct vma *tmp = vma_split(iter, aligned + reserved_size);
 
 #ifdef CONFIG_LIBWILDE_SHAUN
-        if (tmp->size == __PAGE_SIZE)
+        if (tmp->size == __PAGE_SIZE) {
           uk_list_del(&tmp->list);
+          vma_free(tmp);
+        }
 #endif
       }
 
