@@ -120,6 +120,7 @@ void *shim_malloc(struct uk_alloc *a, size_t size)
 
   /* version with wilde */
   char *real_addr = kmalloc(size);
+  UK_ASSERT(real_addr != 0);
 
   alloc_lock();
   char *alias_addr = wilde_map_new(real_addr, size, __PAGE_SIZE);
